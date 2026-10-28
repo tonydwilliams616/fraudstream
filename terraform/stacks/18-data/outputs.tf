@@ -5,10 +5,10 @@
 # -----------------------------------------------------------------------------
 output "bucket_names" {
   description = "Bucket names by short name (datasets, artefacts, scored, capture)."
-  value       = { for k, b in aws_s3_bucket.this : k => b.id }
+  value       = { for k, b in module.bucket : k => b.id }
 }
 
 output "bucket_arns" {
   description = "Bucket ARNs by short name - for IAM policies in later stacks."
-  value       = { for k, b in aws_s3_bucket.this : k => b.arn }
+  value       = { for k, b in module.bucket : k => b.arn }
 }
