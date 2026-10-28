@@ -1,0 +1,130 @@
+# -----------------------------------------------------------------------------
+# terraform-ci.yml - static checks on every pull request and push to main.
+#
+# What: terraform fmt, validate (every directory with .tf files), tflint and a
+#       Checkov security scan - no AWS credentials needed for any of it.
+# Why:  catches formatting, type, lint and security problems before a plan or
+#       apply ever runs. Checkov is blocking from day one: a deliberate
+#       exception is written next to the resource as
+#       #checkov:skip=<ID>:<reason>, so every exception is reviewed and explained.
+# Concept: "ci-passed" is the ONE check branch protection requires. It passes
+#       only if every job above it passed, so adding a job here never means
+#       updating branch protection.
+# Reused from clinical-trial-matching (.github/workflows/terraform-ci.yml).
+# -----------------------------------------------------------------------------
+name: Terraform CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # One Terraform version for every workflow - keep in line with
+  # terraform-deploy.yml and terraform-destroy.yml.
+  TF_VERSION: "1.15.8"
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive -diff terraform/
+
+  discover:
+    name: find Terraform roots
+    runs-on: ubuntu-24.04
+    outputs:
+      dirs: ${{ steps.find.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: find
+        name: List directories containing .tf files
+        run: |
+          dirs=$(find terraform -name '*.tf' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u | jq -R . | jq -sc .)
+          echo "Found: $dirs"
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: validate (${{ matrix.dir }})
+    needs: discover
+    if: needs.discover.outputs.dirs != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.discover.outputs.dirs) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform validate
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ hashFiles('.tflint.hcl') }}
+      - uses: terraform-linters/setup-tflint@v6
+      - name: Init plugins
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # avoids GitHub API rate limits
+      - name: Lint
+        run: tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" --format compact
+
+  checkov:
+    name: checkov security scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install checkov
+        run: pip install checkov
+      # Blocking: any finding fails CI. Deliberate exceptions are recorded next
+      # to the resource as #checkov:skip=<ID>:<reason>.
+      - name: Scan Terraform
+        run: checkov -d terraform --framework terraform --compact --quiet
+
+  # Single required check for branch protection - passes only if every job above did.
+  ci-passed:
+    name: ci-passed
+    if: always()
+    needs: [fmt, discover, validate, tflint, checkov]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check results
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more checks failed"
+            exit 1
+          fi
