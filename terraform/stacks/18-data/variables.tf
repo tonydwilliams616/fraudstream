@@ -39,17 +39,17 @@ variable "buckets" {
   }))
   default = {
     datasets = {
-      purpose = "Versioned training datasets (transactions/vN) with manifests"
+      purpose = "Versioned training datasets - transactions/vN with manifests"
     }
     artefacts = {
-      purpose = "Model artefacts, metrics, model cards and reference tables"
+      purpose = "Model artefacts with metrics and model cards and reference tables"
     }
     scored = {
-      purpose     = "Archive of every scored event: raw fields, features, score, model version"
+      purpose     = "Archive of every scored event - raw fields plus features and score and model version"
       expire_days = 90
     }
     capture = {
-      purpose     = "SageMaker endpoint data capture, read by Model Monitor"
+      purpose     = "SageMaker endpoint data capture read by Model Monitor"
       expire_days = 30
     }
   }
