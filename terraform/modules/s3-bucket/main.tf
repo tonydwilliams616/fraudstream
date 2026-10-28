@@ -80,33 +80,29 @@ resource "aws_s3_bucket_ownership_controls" "this" {
 resource "aws_s3_bucket_lifecycle_configuration" "this" {
   bucket = aws_s3_bucket.this.id
 
+  # One rule per bucket, so the multipart clean-up always applies alongside
+  # any expiry (Checkov CKV_AWS_300 checks every rule for it).
   rule {
-    id     = "expire-old-versions"
+    id     = "retention"
     status = "Enabled"
 
     filter {}
+
+    # Only for buckets with a retention period (e.g. scored, capture)
+    dynamic "expiration" {
+      for_each = var.expire_days == null ? [] : [var.expire_days]
+      content {
+        days = expiration.value
+      }
+    }
 
     noncurrent_version_expiration {
       noncurrent_days = var.noncurrent_days
     }
 
+    # Parts of a failed large upload are invisible but billed until removed
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
-    }
-  }
-
-  # Only for buckets with a retention period (e.g. scored, capture)
-  dynamic "rule" {
-    for_each = var.expire_days == null ? [] : [var.expire_days]
-    content {
-      id     = "expire-current-objects"
-      status = "Enabled"
-
-      filter {}
-
-      expiration {
-        days = rule.value
-      }
     }
   }
 
