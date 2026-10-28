@@ -1,0 +1,188 @@
+# -----------------------------------------------------------------------------
+# terraform-destroy.yml - the nightly teardown of everything billed by the hour.
+#
+# What: destroys the EPHEMERAL stacks, in this order:
+#         50-observability -> 40-serving -> 35-apps -> 30-streaming -> 15-nat
+#       PERSISTENT stacks are never touched here, because they hold data or cost
+#       (almost) nothing when idle:
+#         bootstrap, 00-account, 05-registry, 10-network, 18-data, 19-ml
+#       Stacks with no code yet are skipped, so this is safe to run at any time.
+# Why:  the stack costs ~$1/hour while up (mostly MSK); a forgotten session
+#       overnight would cost more than the session itself. Rebuild with:
+#       Actions -> Terraform Deploy -> Run workflow -> all.
+# Concept: Terraform only destroys what's in its state. SageMaker creates things
+#       Terraform doesn't know about (pipeline executions, training/processing
+#       jobs started by a pipeline, endpoints deployed from a notebook), so a
+#       SWEEP step stops those, and a final VERIFY step lists anything billable
+#       still running. Because fraudstream-dev is a dedicated account, the sweep
+#       can safely act on everything in the account - another benefit of one
+#       account per workload.
+# RULE: a new hourly-billed resource goes into an ephemeral stack, and that
+#       stack goes into EPHEMERAL_STACKS below, in the same PR.
+# Reused from clinical-trial-matching (.github/workflows/terraform-destroy.yml):
+# cron off the hour, teardown environment, shared terraform-state lock, ordered
+# stack list, skip stacks without code. Karpenter/ENI clean-up replaced by the
+# SageMaker sweep; Terraform version aligned with the other workflows.
+# -----------------------------------------------------------------------------
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+  schedule:
+    # Nightly safety net in case a session ends without tearing down.
+    # 22:47 UTC (22:47 UK winter time, 23:47 summer time). Off the hour because
+    # GitHub delays scheduled runs at :00 when busy.
+    - cron: "47 22 * * *"
+
+permissions:
+  contents: read
+
+env:
+  # One Terraform version for every workflow - keep in line with
+  # terraform-ci.yml and terraform-deploy.yml.
+  TF_VERSION: "1.15.8"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+  # Destroyed in exactly this order (reverse of dependencies). Stacks without
+  # code yet are skipped. Keep the plan's section 7 (teardown table) in step.
+  EPHEMERAL_STACKS: "50-observability 40-serving 35-apps 30-streaming 15-nat"
+
+jobs:
+  destroy:
+    name: destroy
+    if: github.event_name == 'schedule' || github.event.inputs.confirm == 'destroy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # No required reviewers on this environment, so the nightly run isn't blocked
+    environment: teardown
+    permissions:
+      contents: read
+      id-token: write
+    # Same lock as the deploy workflow's apply job
+    concurrency:
+      group: terraform-state
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-destroy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 3600
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # -----------------------------------------------------------------------
+      # SWEEP 1 (before destroy): stop SageMaker work Terraform didn't create.
+      # A running pipeline could otherwise start a training job, or deploy,
+      # while we're tearing down. All of these are no-ops until Phase 3.
+      # -----------------------------------------------------------------------
+      - name: Stop running SageMaker pipelines, jobs and monitoring schedules
+        run: |
+          for p in $(aws sagemaker list-pipelines --query 'PipelineSummaries[].PipelineName' --output text); do
+            for arn in $(aws sagemaker list-pipeline-executions --pipeline-name "$p" \
+                --query "PipelineExecutionSummaries[?PipelineExecutionStatus=='Executing'].PipelineExecutionArn" --output text); do
+              echo "::warning::Stopping pipeline execution $arn"
+              aws sagemaker stop-pipeline-execution --pipeline-execution-arn "$arn" || true
+            done
+          done
+
+          for j in $(aws sagemaker list-training-jobs --status-equals InProgress --query 'TrainingJobSummaries[].TrainingJobName' --output text); do
+            echo "::warning::Stopping training job $j"
+            aws sagemaker stop-training-job --training-job-name "$j" || true
+          done
+
+          for j in $(aws sagemaker list-processing-jobs --status-equals InProgress --query 'ProcessingJobSummaries[].ProcessingJobName' --output text); do
+            echo "::warning::Stopping processing job $j"
+            aws sagemaker stop-processing-job --processing-job-name "$j" || true
+          done
+
+          # A schedule launches a monitoring job every hour; stop it so none
+          # starts against an endpoint that's about to disappear. (The schedule
+          # itself is deleted with 40-serving.)
+          for s in $(aws sagemaker list-monitoring-schedules --status-equals Scheduled --query 'MonitoringScheduleSummaries[].MonitoringScheduleName' --output text); do
+            echo "Stopping monitoring schedule $s"
+            aws sagemaker stop-monitoring-schedule --monitoring-schedule-name "$s" || true
+          done
+          echo "Sweep 1 done"
+
+      - name: Destroy ephemeral stacks in order
+        run: |
+          stacks=""
+          for s in $EPHEMERAL_STACKS; do
+            if ls "terraform/stacks/$s"/*.tf > /dev/null 2>&1; then
+              stacks+="terraform/stacks/$s "
+            fi
+          done
+          echo "Will destroy (in order): ${stacks:-nothing}"
+
+          echo "## Terraform destroy" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$stacks" ]; then
+            echo "No ephemeral stacks have code yet - nothing to destroy." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          for stack in $stacks; do
+            echo "::group::Destroy $stack"
+            (
+              cd "$stack"
+              terraform init -input=false
+              # Safe when already destroyed - empty state means "No changes"
+              terraform destroy -auto-approve -input=false -no-color -lock-timeout=5m
+            )
+            echo "::endgroup::"
+            echo "- 🗑️ \`$stack\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # -----------------------------------------------------------------------
+      # SWEEP 2 (after destroy): endpoints Terraform doesn't own, e.g. one
+      # deployed from a notebook while experimenting. Each costs ~$0.115/hour.
+      # Their endpoint configs and models cost nothing, so they're left alone.
+      # -----------------------------------------------------------------------
+      - name: Delete endpoints left outside Terraform
+        run: |
+          for e in $(aws sagemaker list-endpoints --query 'Endpoints[].EndpointName' --output text); do
+            echo "::warning::Deleting endpoint $e (not removed by Terraform)"
+            aws sagemaker delete-endpoint --endpoint-name "$e" || true
+          done
+          echo "Sweep 2 done"
+
+      # -----------------------------------------------------------------------
+      # VERIFY: anything still billing by the hour fails the run, so the
+      # failure email tells you before the bill does.
+      # -----------------------------------------------------------------------
+      - name: Verify nothing billable is left running
+        run: |
+          left=""
+          check() { # $1 = label, $2 = output of an aws call (empty = none)
+            if [ -n "$2" ] && [ "$2" != "None" ]; then
+              echo "::error::$1 still present: $2"
+              left+="$1 "
+            fi
+          }
+
+          check "MSK clusters"      "$(aws kafka list-clusters-v2 --query 'ClusterInfoList[].ClusterName' --output text)"
+          check "NAT gateways"      "$(aws ec2 describe-nat-gateways --filter Name=state,Values=pending,available --query 'NatGateways[].NatGatewayId' --output text)"
+          check "SageMaker endpoints" "$(aws sagemaker list-endpoints --query "Endpoints[?EndpointStatus!='Deleting'].EndpointName" --output text)"
+          check "Training jobs"     "$(aws sagemaker list-training-jobs --status-equals InProgress --query 'TrainingJobSummaries[].TrainingJobName' --output text)"
+          check "Processing jobs"   "$(aws sagemaker list-processing-jobs --status-equals InProgress --query 'ProcessingJobSummaries[].ProcessingJobName' --output text)"
+          for c in $(aws ecs list-clusters --query 'clusterArns[]' --output text); do
+            check "ECS services in $c" "$(aws ecs list-services --cluster "$c" --query 'serviceArns[]' --output text)"
+          done
+
+          echo "## Verify" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$left" ]; then
+            echo "❌ Still running: $left" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "✅ Nothing billed by the hour is left running" >> "$GITHUB_STEP_SUMMARY"
