@@ -9,7 +9,6 @@
 # Concept: S3 native locking (use_lockfile, Terraform >= 1.10) writes a .tflock
 #       object next to the state - no DynamoDB lock table needed any more.
 # Cost: pennies a month. Persistent - never destroyed by the nightly teardown.
-# Reused from clinical-trial-matching (bucket becomes fs-tfstate-831547420318).
 # -----------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 

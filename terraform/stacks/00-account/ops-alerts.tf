@@ -9,7 +9,6 @@
 #       they go to the fraud.alerts Kafka topic instead.
 # Encrypted with the AWS-managed SNS key; CloudWatch alarms in the same account
 # can publish to it. Persistent and pennies a month, so it survives teardown.
-# Reused pattern from clinical-trial-matching (00-account/ops-alerts.tf).
 # -----------------------------------------------------------------------------
 resource "aws_sns_topic" "ops_alerts" {
   name              = "${var.project_name}-ops-alerts"

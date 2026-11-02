@@ -6,7 +6,6 @@
 #       They go into the OIDC trust condition, so if the repo is ever renamed
 #       or deleted and someone recreates one with the same name ("repojacking"),
 #       their workflows still can't assume these roles.
-# Reused from clinical-trial-matching, with fraudstream values.
 # -----------------------------------------------------------------------------
 variable "project_name" {
   description = "Short prefix used for naming resources (fs = fraudstream)."
@@ -46,7 +45,7 @@ variable "github_repo" {
 variable "github_owner_id" {
   description = "Immutable numeric ID of the GitHub owner, included in the OIDC sub claim."
   type        = string
-  default     = "219661695" # same owner as clinical-trial-matching
+  default     = "219661695" # GitHub user ID: gh api users/tonydwilliams616 --jq .id
 }
 
 variable "github_repo_id" {

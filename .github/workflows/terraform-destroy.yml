@@ -19,10 +19,6 @@
 #       account per workload.
 # RULE: a new hourly-billed resource goes into an ephemeral stack, and that
 #       stack goes into EPHEMERAL_STACKS below, in the same PR.
-# Reused from clinical-trial-matching (.github/workflows/terraform-destroy.yml):
-# cron off the hour, teardown environment, shared terraform-state lock, ordered
-# stack list, skip stacks without code. Karpenter/ENI clean-up replaced by the
-# SageMaker sweep; Terraform version aligned with the other workflows.
 # -----------------------------------------------------------------------------
 name: Terraform Destroy
 

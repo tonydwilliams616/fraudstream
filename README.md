@@ -10,9 +10,8 @@ drift detection, retraining, DR – not model accuracy.
 
 ## Status
 
-Phase 1 (foundations, data and baseline model) – in progress. The full plan (phases,
-decisions, costs) is kept as `fraudstream-plan.md` in the Claude project and copied to
-`docs/` at the end of each phase.
+Phase 1 (foundations, data and baseline model) – in progress. Each phase's plan, decisions and
+costs are written up in `docs/` when the phase completes.
 
 ## Repository layout
 
@@ -20,7 +19,7 @@ decisions, costs) is kept as `fraudstream-plan.md` in the Claude project and cop
 terraform/
   bootstrap/           applied by hand once: state bucket + GitHub OIDC roles (see its README)
   modules/
-    cost-guardrails/   budgets, alerts, anomaly detection (reused from clinical-trial-matching)
+    cost-guardrails/   budgets, alerts, anomaly detection
   stacks/              one state file per stack, applied in numeric order
     00-account/        P  budgets + ops-alerts SNS topic
     05-registry/       P  ECR repositories (simulator, consumer)

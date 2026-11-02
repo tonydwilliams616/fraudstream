@@ -5,7 +5,6 @@
 # Why:  the same module serves an account shared by several projects (tag-scoped
 #       project budget) or a dedicated account like fraudstream-dev (account
 #       budget only - project_tag_value = null).
-# Reused verbatim from clinical-trial-matching.
 # -----------------------------------------------------------------------------
 variable "project_name" {
   description = "Prefix used for naming all resources."

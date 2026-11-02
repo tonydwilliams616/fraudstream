@@ -1,6 +1,5 @@
 # -----------------------------------------------------------------------------
 # modules/cost-guardrails/outputs.tf - what the calling stack can use.
-# Reused verbatim from clinical-trial-matching.
 # -----------------------------------------------------------------------------
 output "sns_topic_arn" {
   description = "SNS topic receiving budget alerts - subscribe Lambda/Slack/Chatbot here later."

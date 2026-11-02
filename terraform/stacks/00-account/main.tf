@@ -4,9 +4,8 @@
 # What: the cost-guardrails module with an account-wide $50/month budget.
 # Why:  fraudstream-dev is a dedicated account, so the account's whole bill IS
 #       the project's cost. That's why there's no tag-scoped project budget here
-#       (project_tag_value = null) - unlike clinical-trial-matching, which needed
-#       one, and whose cost allocation tags can only be activated from the
-#       management account anyway.
+#       (project_tag_value = null) - and cost allocation tags can only be
+#       activated from the management account anyway.
 # Stack type: PERSISTENT. Cost: budgets are free (first two per account), SNS
 #       pennies.
 # -----------------------------------------------------------------------------
