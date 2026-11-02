@@ -1,15 +1,14 @@
 # -----------------------------------------------------------------------------
 # modules/cost-guardrails/main.tf - budgets and spend alerts for an account.
 #
-# What: an SNS topic + email subscription, an account-wide monthly budget with
-#       percentage alerts, an optional tag-scoped project budget, and an
+# What: an SNS topic + email subscription that every budget alert goes
+#       through, an account-wide monthly budget with percentage alerts, an optional tag-scoped project budget, and an
 #       optional Cost Anomaly Detection monitor.
 # Why:  the first thing applied in any account that can spend money, so a
 #       forgotten MSK cluster or endpoint gets noticed in hours, not at the end
 #       of the month. Budgets fire on ACTUAL and FORECASTED spend.
 # Concept: budgets react to thresholds you choose; anomaly detection uses ML on
 #       your spend history to flag unusual jumps you didn't predict.
-# Reused verbatim from clinical-trial-matching (terraform/modules/cost-guardrails).
 # -----------------------------------------------------------------------------
 terraform {
   required_version = ">= 1.5"
@@ -25,7 +24,9 @@ terraform {
 data "aws_caller_identity" "current" {}
 
 # -----------------------------------------------------------------------------
-# SNS topic for budget alerts (lets you hook up Slack/Lambda automation later)
+# SNS topic for budget alerts. Budgets publish only here (no direct email), so
+# each alert arrives once, and other subscribers (e.g. a Lambda) can be added
+# to the topic without changing the budgets.
 # -----------------------------------------------------------------------------
 resource "aws_sns_topic" "budget_alerts" {
   #checkov:skip=CKV_AWS_26:AWS Budgets cannot publish to a topic encrypted with the AWS-managed SNS key; alerts carry no sensitive data
@@ -77,12 +78,11 @@ resource "aws_budgets_budget" "account_monthly" {
   dynamic "notification" {
     for_each = var.alert_thresholds
     content {
-      comparison_operator        = "GREATER_THAN"
-      threshold                  = notification.value.threshold
-      threshold_type             = "PERCENTAGE"
-      notification_type          = notification.value.type
-      subscriber_email_addresses = [var.alert_email]
-      subscriber_sns_topic_arns  = [aws_sns_topic.budget_alerts.arn]
+      comparison_operator       = "GREATER_THAN"
+      threshold                 = notification.value.threshold
+      threshold_type            = "PERCENTAGE"
+      notification_type         = notification.value.type
+      subscriber_sns_topic_arns = [aws_sns_topic.budget_alerts.arn]
     }
   }
 
@@ -90,7 +90,7 @@ resource "aws_budgets_budget" "account_monthly" {
 }
 
 # -----------------------------------------------------------------------------
-# Project-scoped budget (filters on a cost allocation tag, e.g. Project=ctm)
+# Project-scoped budget (filters on a cost allocation tag, e.g. Project=fraudstream)
 # The tag must be ACTIVATED as a cost allocation tag in Billing for this to work.
 # -----------------------------------------------------------------------------
 resource "aws_ce_cost_allocation_tag" "project" {
@@ -116,12 +116,11 @@ resource "aws_budgets_budget" "project_monthly" {
   dynamic "notification" {
     for_each = var.alert_thresholds
     content {
-      comparison_operator        = "GREATER_THAN"
-      threshold                  = notification.value.threshold
-      threshold_type             = "PERCENTAGE"
-      notification_type          = notification.value.type
-      subscriber_email_addresses = [var.alert_email]
-      subscriber_sns_topic_arns  = [aws_sns_topic.budget_alerts.arn]
+      comparison_operator       = "GREATER_THAN"
+      threshold                 = notification.value.threshold
+      threshold_type            = "PERCENTAGE"
+      notification_type         = notification.value.type
+      subscriber_sns_topic_arns = [aws_sns_topic.budget_alerts.arn]
     }
   }
 

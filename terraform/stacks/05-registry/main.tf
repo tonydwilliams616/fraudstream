@@ -7,7 +7,6 @@
 #       never be overwritten, so "which code is running?" always has one answer
 #       (lineage that can't lie). The lifecycle policy caps storage cost.
 # Stack type: PERSISTENT. Cost: $0.10/GB-month - a few cents for these images.
-# Reused from clinical-trial-matching (05-registry), with fraudstream repos.
 # -----------------------------------------------------------------------------
 resource "aws_ecr_repository" "this" {
   #checkov:skip=CKV_AWS_136:AES256 (ECR default) is sufficient for images built from a public repo; avoids KMS cost

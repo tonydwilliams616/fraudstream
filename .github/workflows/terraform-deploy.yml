@@ -14,7 +14,6 @@
 #       the "terraform-state" concurrency lock with the destroy workflow, so an
 #       apply and the nightly destroy can never run at the same time.
 # bootstrap/ is never deployed here - it's applied by hand by an admin.
-# Reused from clinical-trial-matching (.github/workflows/terraform-deploy.yml).
 # -----------------------------------------------------------------------------
 name: Terraform Deploy
 

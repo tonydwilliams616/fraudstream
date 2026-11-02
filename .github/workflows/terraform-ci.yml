@@ -10,7 +10,6 @@
 # Concept: "ci-passed" is the ONE check branch protection requires. It passes
 #       only if every job above it passed, so adding a job here never means
 #       updating branch protection.
-# Reused from clinical-trial-matching (.github/workflows/terraform-ci.yml).
 # -----------------------------------------------------------------------------
 name: Terraform CI
 

@@ -14,8 +14,6 @@
 # Concept: the "production" environment has a required reviewer (you), so every
 #       apply waits for a click; "teardown" has none, so the nightly destroy is
 #       never blocked. Both are set up by scripts/setup-github.sh.
-# Reused from clinical-trial-matching (Helm/ECR Public statement dropped -
-# fraudstream has no Helm charts).
 # -----------------------------------------------------------------------------
 resource "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 1 : 0
@@ -33,7 +31,7 @@ locals {
   github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 
   # GitHub's OIDC subject includes immutable owner/repo IDs, which protects
-  # against repo renames and repojacking (same format as clinical-trial-matching).
+  # against repo renames and repojacking.
   github_oidc_subject_prefix = "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}"
 }
 
@@ -142,7 +140,7 @@ resource "aws_iam_role" "github_apply" {
 # Broad on purpose for now: the apply role will create VPCs, MSK, SageMaker,
 # ECS and IAM roles. The account boundary limits the blast radius - this role
 # can only touch fraudstream-dev. TODO: scope down with a permissions boundary
-# once the stack set is stable (a good interview follow-up).
+# once the stack set is stable.
 resource "aws_iam_role_policy_attachment" "github_apply_admin" {
   #checkov:skip=CKV_AWS_274:Apply role needs broad permissions for now; confined to a dedicated account, to be scoped with a permissions boundary later
   role       = aws_iam_role.github_apply.name

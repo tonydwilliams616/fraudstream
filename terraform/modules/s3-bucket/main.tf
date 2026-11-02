@@ -28,7 +28,7 @@ terraform {
 
 resource "aws_s3_bucket" "this" {
   #checkov:skip=CKV_AWS_144:Cross-region replication is added in Phase 7 (DR) for datasets, artefacts and scored
-  #checkov:skip=CKV_AWS_18:Access logging not needed for a single-user portfolio project; CloudTrail covers management events
+  #checkov:skip=CKV_AWS_18:Access logging not needed for a single-user project; CloudTrail covers management events
   #checkov:skip=CKV2_AWS_62:Event notifications not needed yet; the drift trigger uses CloudWatch/EventBridge, not S3 events
   #checkov:skip=CKV_AWS_145:SSE-S3 is sufficient for synthetic data; avoids KMS key and request costs
   bucket = var.name
