@@ -63,6 +63,17 @@ def test_mixed_dataset_is_ordered_unique_and_inside_the_period(data):
     assert tx["timestamp"].max() < start + pd.Timedelta(days=DAYS)
 
 
+def test_fraud_runs_right_to_the_end_of_the_period(data):
+    # The last days must not be starved of fraud - otherwise the test days of a
+    # time split would have unrealistically little fraud to find.
+    _, _, tx = data
+    start = pd.Timestamp(START, tz="UTC")
+    fraud_day = (tx.loc[tx["is_fraud"] == 1, "timestamp"] - start).dt.days
+    per_day = fraud_day.value_counts().reindex(range(DAYS), fill_value=0)
+    assert per_day.iloc[-1] > 0
+    assert per_day.iloc[-3:].mean() > 0.5 * per_day.mean()
+
+
 def test_each_compromised_card_has_one_style(data):
     _, _, tx = data
     styles_per_card = tx[tx["is_fraud"] == 1].groupby("card_id")["fraud_type"].nunique()
