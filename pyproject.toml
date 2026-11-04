@@ -24,6 +24,8 @@ dependencies = [
   "numpy>=2.0",   # fast maths on large arrays of numbers
   "pandas>=2.2",  # tables of data (one row per transaction)
   "pyarrow>=16",  # reads and writes Parquet, the compact file format for datasets
+  "xgboost>=2.1",  # the model: gradient-boosted decision trees
+  "scikit-learn>=1.5",  # standard evaluation metrics (PR-AUC, ROC-AUC)
 ]
 
 [project.optional-dependencies]

@@ -32,10 +32,12 @@ terraform/
 scripts/
   setup-github.sh      repo variables, secret, environments, branch protection
   data/make_dataset.py generate a dataset version -> data/ and s3://fs-datasets-.../
+  train/train_baseline.py  train + evaluate the baseline model -> models/<run-id>/
 src/fraudstream/       the Python package (pip install -e ".[dev]")
   generator/           synthetic cardholders, shops, transactions and fraud, from one seed
   features/            FeatureBuilder: the one place features are calculated
   storage.py           immutable dataset versions: Parquet + manifest, local and S3
+  training/            time split, XGBoost training, evaluation at an alert budget
 tests/                 pytest: generator, features, leakage, skew, reproducibility
 pyproject.toml         package definition, dependencies, pytest and ruff settings
 ```
