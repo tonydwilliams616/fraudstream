@@ -3,7 +3,9 @@
 What: save_version() writes the three tables (transactions, cards, merchants)
       as Parquet files plus a manifest.json into <root>/<name>/<version>/,
       e.g. data/transactions/v1/. upload_version() copies that folder to the
-      datasets bucket under the same path.
+      datasets bucket under the same path. download_version() and
+      load_version() are the way back: they fetch a version and refuse to hand
+      over any table that doesn't match its manifest.
 Why:  every model must point at exactly the data it learned from. A numbered
       version that never changes, with a manifest describing it, is what makes
       "model 7 was trained on transactions/v1" a checkable statement.
@@ -37,7 +39,7 @@ from pathlib import Path
 import pandas as pd
 
 import fraudstream
-from fraudstream.generator.dataset import Dataset, fingerprint
+from fraudstream.generator.dataset import Dataset, DatasetParams, fingerprint
 
 TABLES = ("transactions", "cards", "merchants")
 MANIFEST = "manifest.json"
@@ -124,6 +126,64 @@ def upload_version(local_dir: Path, bucket: str, s3=None) -> list[str]:
             s3.put_object(Bucket=bucket, Key=key, Body=body, IfNoneMatch="*")
         keys.append(key)
     return keys
+
+
+def download_version(uri: str, cache_root: Path, s3=None) -> Path:
+    """Copy s3://<bucket>/<name>/<version>/ to <cache_root>/<name>/<version>/; return the folder.
+
+    A version without a manifest is incomplete (see the module notes) and is
+    refused. An existing local copy is reused - load_version() checks every
+    file against the manifest anyway, so a stale or damaged copy can't slip
+    through.
+    """
+    bucket, prefix = _parse_s3_uri(uri)  # e.g. ("fs-datasets-...", "transactions/v1")
+    local = Path(cache_root) / prefix
+    if (local / MANIFEST).exists():
+        return local
+    if s3 is None:
+        import boto3
+
+        s3 = boto3.client("s3")
+    try:
+        manifest_bytes = s3.get_object(Bucket=bucket, Key=f"{prefix}/{MANIFEST}")["Body"].read()
+    except s3.exceptions.NoSuchKey as err:
+        raise FileNotFoundError(f"{uri} has no {MANIFEST} - missing or incomplete version") from err
+    manifest = json.loads(manifest_bytes)
+    local.mkdir(parents=True, exist_ok=True)
+    for info in manifest["tables"].values():
+        s3.download_file(bucket, f"{prefix}/{info['file']}", str(local / info["file"]))
+    (local / MANIFEST).write_bytes(manifest_bytes)  # last, like the upload
+    return local
+
+
+def load_version(folder: Path) -> tuple[Dataset, dict]:
+    """Read a saved version back, checking every table against the manifest.
+
+    Two checks per table: the file's SHA-256 (the file hasn't been changed or
+    damaged) and the content fingerprint (the data pandas reads is exactly the
+    data that was generated). Either mismatch raises - training on data that
+    differs from what the manifest claims would make the manifest a lie.
+    """
+    folder = Path(folder)
+    manifest = json.loads((folder / MANIFEST).read_text())
+    tables = {}
+    for table, info in manifest["tables"].items():
+        path = folder / info["file"]
+        if file_sha256(path) != info["sha256"]:
+            raise ValueError(f"{path}: file differs from the manifest (SHA-256 mismatch)")
+        df = pd.read_parquet(path)
+        if fingerprint(df) != info["fingerprint"]:
+            raise ValueError(f"{path}: contents differ from the manifest (fingerprint mismatch)")
+        tables[table] = df
+    params = DatasetParams(**manifest["params"])
+    return Dataset(params, tables["cards"], tables["merchants"], tables["transactions"]), manifest
+
+
+def _parse_s3_uri(uri: str) -> tuple[str, str]:
+    if not uri.startswith("s3://"):
+        raise ValueError(f"expected s3://bucket/name/version - got {uri!r}")
+    bucket, _, prefix = uri[len("s3://") :].partition("/")
+    return bucket, prefix.strip("/")
 
 
 def summarise(transactions: pd.DataFrame) -> dict:
