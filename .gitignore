@@ -50,6 +50,8 @@ __pycache__/
 *.egg-info/
 # Generated datasets - the copies that matter live in S3 (scripts/data/make_dataset.py)
 /data/
+# Local training runs - the copies that matter go to the artefacts bucket (step 4)
+/models/
 *.pyc
 .venv/
 .pytest_cache/
