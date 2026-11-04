@@ -1,0 +1,44 @@
+# -----------------------------------------------------------------------------
+# pyproject.toml - the Python project definition for fraudstream.
+#
+# What: names the package (fraudstream), the Python version it needs, the
+#       libraries it depends on, and settings for the test runner (pytest) and
+#       the linter (ruff).
+# Why:  one file describes how to install the project, so your Mac, CI and the
+#       containers built later all install exactly the same thing with
+#       `pip install -e ".[dev]"`.
+# Concept: "src layout" - the code lives in src/fraudstream/, so tests always run
+#       against the installed package, never against stray files that happen to
+#       sit in the current folder.
+# -----------------------------------------------------------------------------
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fraudstream"
+version = "0.1.0"
+description = "Real-time card-fraud scoring: synthetic data, features, training and serving code"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",   # fast maths on large arrays of numbers
+  "pandas>=2.2",  # tables of data (one row per transaction)
+  "pyarrow>=16",  # reads and writes Parquet, the compact file format for datasets
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",  # runs the tests in tests/
+  "ruff>=0.6",  # checks code style and common mistakes
+  "boto3>=1.35",  # AWS SDK: uploads dataset versions to S3 (needs 1.35+ for conditional writes)
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
