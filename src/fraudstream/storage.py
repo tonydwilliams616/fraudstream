@@ -104,7 +104,18 @@ def upload_version(local_dir: Path, bucket: str, s3=None) -> list[str]:
     """
     local_dir = Path(local_dir)
     manifest = json.loads((local_dir / MANIFEST).read_text())
-    prefix = manifest["dataset"] + "/"  # e.g. "transactions/v1/"
+    files = [t["file"] for t in manifest["tables"].values()] + [MANIFEST]  # manifest LAST
+    return upload_files(local_dir, files, bucket, manifest["dataset"], s3)
+
+
+def upload_files(local_dir: Path, files: list[str], bucket: str, prefix: str, s3=None) -> list[str]:
+    """Upload `files` (in this order) from local_dir to s3://<bucket>/<prefix>/, never overwriting.
+
+    The shared rule for everything this project publishes (datasets, models):
+    refuse if the prefix already holds anything, write each file only if its
+    key doesn't exist, and put the file that marks the set complete LAST.
+    """
+    prefix = prefix.strip("/") + "/"
     if s3 is None:
         import boto3  # only needed for uploads, so imported only here
 
@@ -113,14 +124,13 @@ def upload_version(local_dir: Path, bucket: str, s3=None) -> list[str]:
     existing = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
     if existing.get("KeyCount", 0) > 0:
         raise FileExistsError(
-            f"s3://{bucket}/{prefix} already exists - versions are never overwritten"
+            f"s3://{bucket}/{prefix} already exists - published files are never overwritten"
         )
 
-    files = [t["file"] for t in manifest["tables"].values()] + [MANIFEST]  # manifest LAST
     keys = []
     for file in files:
         key = prefix + file
-        with open(local_dir / file, "rb") as body:
+        with open(Path(local_dir) / file, "rb") as body:
             # IfNoneMatch="*": S3 rejects the write if the key already exists,
             # even if someone else uploaded it a moment after the check above.
             s3.put_object(Bucket=bucket, Key=key, Body=body, IfNoneMatch="*")
