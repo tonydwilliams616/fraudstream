@@ -26,10 +26,18 @@ terraform/
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
+  python-ci.yml          ruff + pytest -> single "python-ci-passed" check
   terraform-deploy.yml   plan on PR (comment), approval-gated apply on main, one-click rebuild
   terraform-destroy.yml  nightly teardown of ephemeral stacks + SageMaker sweep + verify
 scripts/
   setup-github.sh      repo variables, secret, environments, branch protection
+  data/make_dataset.py generate a dataset version -> data/ and s3://fs-datasets-.../
+src/fraudstream/       the Python package (pip install -e ".[dev]")
+  generator/           synthetic cardholders, shops, transactions and fraud, from one seed
+  features/            FeatureBuilder: the one place features are calculated
+  storage.py           immutable dataset versions: Parquet + manifest, local and S3
+tests/                 pytest: generator, features, leakage, skew, reproducibility
+pyproject.toml         package definition, dependencies, pytest and ruff settings
 ```
 
 **P** = persistent (kept by the nightly teardown). Ephemeral stacks (NAT, MSK, ECS

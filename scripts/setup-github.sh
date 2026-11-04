@@ -12,7 +12,8 @@
 #                            teardown   - no approval (the nightly destroy
 #                                         must never wait); main only
 #   4. BRANCH PROTECTION     main: changes via pull request, the "ci-passed"
-#                            check must pass, no force-push or deletion
+#                            (Terraform) and "python-ci-passed" (Python)
+#                            checks must pass, no force-push or deletion
 #
 # Why variables vs secrets: role ARNs aren't secret - they're useless without a
 # matching OIDC token - so they're variables you can read in logs. The email
@@ -87,7 +88,7 @@ echo "==> 4. Branch protection on main"
 # leaves you a way out if CI itself breaks.
 gh api --method PUT "repos/$REPO/branches/main/protection" --input - <<'EOF' > /dev/null
 {
-  "required_status_checks": { "strict": true, "checks": [{ "context": "ci-passed" }] },
+  "required_status_checks": { "strict": true, "checks": [{ "context": "ci-passed" }, { "context": "python-ci-passed" }] },
   "enforce_admins": false,
   "required_pull_request_reviews": { "required_approving_review_count": 0, "dismiss_stale_reviews": true },
   "restrictions": null,

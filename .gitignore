@@ -47,6 +47,9 @@ aws-login.sh
 
 # Python
 __pycache__/
+*.egg-info/
+# Generated datasets - the copies that matter live in S3 (scripts/data/make_dataset.py)
+/data/
 *.pyc
 .venv/
 .pytest_cache/

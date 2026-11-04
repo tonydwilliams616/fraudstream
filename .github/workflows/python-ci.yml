@@ -1,0 +1,86 @@
+# -----------------------------------------------------------------------------
+# python-ci.yml - checks the Python code on every pull request and push to main.
+#
+# What: installs the fraudstream package exactly as you do locally
+#       (pip install -e ".[dev]"), then runs:
+#         - ruff check          lint: common mistakes, unused imports, etc.
+#         - ruff format --check style: code must already be formatted
+#         - pytest              every test in tests/, including the leakage,
+#                               skew and same-seed fingerprint tests
+# Why:  the tests are what protect the data and features from silent mistakes
+#       (leakage, training-serving skew, unreproducible data). They only
+#       protect anything if they run on every change, not just when someone
+#       remembers to run them locally.
+# Concept: "python-ci-passed" is this workflow's single required check (the
+#       Terraform workflow has its own, "ci-passed"). Branch protection requires
+#       both, so adding a job here never means updating branch protection.
+#       There's deliberately no path filter: a required check that is skipped
+#       because no Python changed would never report, and the PR would wait
+#       forever. The whole workflow takes about a minute.
+# -----------------------------------------------------------------------------
+name: Python CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same Python as your Mac's .venv; the consumer container will use it too.
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check --output-format=github .
+      - name: Formatting
+        run: ruff format --check --diff .
+
+  test:
+    name: pytest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Test
+        run: python -m pytest
+
+  # Single required check for branch protection - passes only if every job above did.
+  python-ci-passed:
+    name: python-ci-passed
+    if: always()
+    needs: [lint, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check results
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more checks failed"
+            exit 1
+          fi

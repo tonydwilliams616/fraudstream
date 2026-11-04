@@ -7,9 +7,9 @@
 #       apply ever runs. Checkov is blocking from day one: a deliberate
 #       exception is written next to the resource as
 #       #checkov:skip=<ID>:<reason>, so every exception is reviewed and explained.
-# Concept: "ci-passed" is the ONE check branch protection requires. It passes
-#       only if every job above it passed, so adding a job here never means
-#       updating branch protection.
+# Concept: "ci-passed" is this workflow's single required check (python-ci.yml
+#       has its own, "python-ci-passed"). It passes only if every job above it
+#       passed, so adding a job here never means updating branch protection.
 # -----------------------------------------------------------------------------
 name: Terraform CI
 
