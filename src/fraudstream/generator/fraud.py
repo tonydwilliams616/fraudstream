@@ -74,17 +74,19 @@ def add_fraud(
             "online_fraud": _online_fraud,
         }[style]
         episode = make(card, shops, rng, bool(stealth))
-        # Episode start: any day that leaves room for the episode (plus the
-        # hour-of-day chosen below) to finish inside the period.
-        span = max(t for t, _, _ in episode) + pd.Timedelta(days=1)
-        latest = (period_end - period_start - span).total_seconds()
-        t0 = period_start + pd.Timedelta(seconds=int(rng.integers(0, int(latest))))
+        # Episode start: any day of the period, so fraud is spread evenly to the
+        # very end. An episode still running when the period ends is cut off
+        # there (its later rows are dropped) - just as a real data extract cuts
+        # through whatever fraud happens to be in progress.
+        t0 = period_start + pd.Timedelta(days=int(rng.integers(0, days)))
         t0 = _set_hour(t0, card, rng, stealth)
         for offset, shop_idx, amount in episode:
+            if t0 + offset >= period_end:
+                continue
             shop = shops.iloc[shop_idx]
             rows.append(
                 {
-                    "timestamp": min(t0 + offset, period_end - pd.Timedelta(seconds=1)),
+                    "timestamp": t0 + offset,
                     "card_id": card["card_id"],
                     "merchant_id": shop["merchant_id"],
                     "merchant_category": shop["category"],
