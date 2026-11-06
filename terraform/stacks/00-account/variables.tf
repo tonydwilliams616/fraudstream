@@ -32,9 +32,9 @@ variable "alert_email" {
 }
 
 variable "monthly_budget_limit" {
-  description = "Account-wide monthly budget in USD (~10 sessions on MSK Serverless plus headroom)."
+  description = "Account-wide monthly budget in USD. The full stack costs ~$1/hour (3 x kafka.m7g.large MSK, SageMaker endpoint, NAT per AZ), so ~15 four-hour sessions plus headroom."
   type        = number
-  default     = 50
+  default     = 100
 }
 
 variable "enable_anomaly_detection" {

@@ -86,7 +86,7 @@ nothing is delivered until you do.
 
 Actions → **Terraform Destroy** → Run workflow → type `destroy`. With no ephemeral stacks
 yet it should report *nothing to destroy* and the **Verify** step should pass. From now
-on it runs every night at 22:47 UTC.
+on it runs every night at 01:47 UTC.
 
 ## If a workflow can't assume a role
 
