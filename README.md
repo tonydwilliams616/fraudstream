@@ -40,6 +40,7 @@ terraform/
   stacks/              one state file per stack, applied in numeric order
     00-account/        P  budgets + ops-alerts SNS topic
     05-registry/       P  ECR repositories (simulator, consumer)
+    10-network/        P  VPC over 3 AZs: public/app/data subnets, S3 endpoint, flow logs, security groups
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
