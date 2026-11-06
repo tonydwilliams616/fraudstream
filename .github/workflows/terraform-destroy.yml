@@ -30,9 +30,10 @@ on:
         required: true
   schedule:
     # Nightly safety net in case a session ends without tearing down.
-    # 22:47 UTC (22:47 UK winter time, 23:47 summer time). Off the hour because
-    # GitHub delays scheduled runs at :00 when busy.
-    - cron: "47 22 * * *"
+    # 01:47 UTC (01:47 UK winter time, 02:47 summer time) - after evening work
+    # sessions have finished. Off the hour because GitHub delays scheduled runs
+    # at :00 when busy.
+    - cron: "47 1 * * *"
 
 permissions:
   contents: read
