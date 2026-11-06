@@ -44,6 +44,7 @@ terraform/
     15-nat/            E  NAT gateway per AZ + default routes for the app subnets
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
     19-ml/             P  IAM roles (endpoint, ECS tasks), model registry group
+    30-streaming/      E  MSK (3 x m7g.large, KRaft, IAM auth, TLS) + ECS cluster
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
