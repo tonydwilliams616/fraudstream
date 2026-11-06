@@ -25,7 +25,7 @@ from pathlib import Path
 from fraudstream.storage import download_version, git_state, load_version
 from fraudstream.training.data import prepare
 from fraudstream.training.evaluate import ALERT_RATE, evaluate
-from fraudstream.training.train import score, train
+from fraudstream.training.train import best_booster, score, train
 
 DEFAULT_DATASET = "s3://fs-datasets-831547420318/transactions/v2"
 
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     run_id = "baseline-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = args.out / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    model.save_model(run_dir / "model.json")
+    best_booster(model).save_model(run_dir / "model.json")  # only the trees we evaluated
     metrics = {
         "run_id": run_id,
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),

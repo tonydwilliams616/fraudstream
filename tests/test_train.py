@@ -17,11 +17,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import xgboost as xgb
+from sklearn.metrics import roc_auc_score
 
+from fraudstream.features import FEATURE_COLUMNS
 from fraudstream.generator.dataset import DatasetParams, generate_dataset
 from fraudstream.storage import load_version, save_version
 from fraudstream.training.data import LABEL, prepare
-from fraudstream.training.train import score, train
+from fraudstream.training.train import best_booster, score, train
 
 PARAMS = DatasetParams(seed=5, n_cards=2000, n_merchants=300, days=10)
 
@@ -55,11 +57,22 @@ def test_early_stopping_keeps_fewer_trees_than_the_limit(trained):
     assert 1 <= record["trees_used"] < record["params"]["n_estimators"]
 
 
-def test_model_scores_fraud_far_above_normal(data, trained):
+def test_model_ranks_fraud_far_above_normal(data, trained):
+    # ROC-AUC: the chance a random fraud row scores above a random normal row.
+    # It checks the ranking, not the raw score values - those depend on how
+    # XGBoost calibrates its starting point, which differs between versions.
     model, _ = trained
-    scores = score(model, data.valid)
-    fraud = data.valid[LABEL].to_numpy() == 1
-    assert np.median(scores[fraud]) > 10 * np.median(scores[~fraud])
+    assert roc_auc_score(data.valid[LABEL], score(model, data.valid)) > 0.9
+
+
+def test_saved_model_scores_exactly_like_the_evaluated_model(data, trained, tmp_path):
+    # The file we publish must hold exactly the model whose results we report.
+    model, _ = trained
+    best_booster(model).save_model(tmp_path / "model.json")
+    reloaded = xgb.Booster()
+    reloaded.load_model(tmp_path / "model.json")
+    matrix = xgb.DMatrix(data.test[FEATURE_COLUMNS])
+    np.testing.assert_allclose(reloaded.predict(matrix), score(model, data.test), rtol=1e-6)
 
 
 def test_training_twice_gives_identical_scores(data, trained):
@@ -84,5 +97,6 @@ def test_training_script_writes_a_run_folder(saved, tmp_path, capsys):
     assert metrics["data"]["dataset"] == "transactions/v1"
     assert metrics["evaluation"]["test"]["pr_auc"] is not None
     assert "Test PR-AUC" in capsys.readouterr().out
-    reloaded = xgb.XGBClassifier()
-    reloaded.load_model(run_dir / "model.json")  # the saved model can be read back
+    reloaded = xgb.Booster()
+    reloaded.load_model(run_dir / "model.json")  # the saved model can be read back ...
+    assert reloaded.num_boosted_rounds() == metrics["training"]["trees_used"]  # ... best trees only

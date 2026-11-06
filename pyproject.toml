@@ -24,7 +24,10 @@ dependencies = [
   "numpy>=2.0",   # fast maths on large arrays of numbers
   "pandas>=2.2",  # tables of data (one row per transaction)
   "pyarrow>=16",  # reads and writes Parquet, the compact file format for datasets
-  "xgboost>=2.1",  # the model: gradient-boosted decision trees
+  # The model: gradient-boosted decision trees. Pinned to the release line served by
+  # SageMaker's built-in XGBoost container (image 3.0-5), so the endpoint loads a model
+  # saved by the same XGBoost that trained it (training-serving parity).
+  "xgboost>=3.0,<3.1",
   "scikit-learn>=1.5",  # standard evaluation metrics (PR-AUC, ROC-AUC)
 ]
 
