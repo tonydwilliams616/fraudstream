@@ -70,7 +70,7 @@ def train(data: TrainingData, params: dict | None = None) -> tuple[xgb.XGBClassi
 
     # Which clues the model leaned on most: total improvement ("gain") from
     # every question asked about that clue, as a share of the whole.
-    gain = model.get_booster().get_score(importance_type="total_gain")
+    gain = best_booster(model).get_score(importance_type="total_gain")
     total = sum(gain.values()) or 1.0
     importance = {f: round(gain.get(f, 0.0) / total, 4) for f in FEATURE_COLUMNS}
 
@@ -85,6 +85,18 @@ def train(data: TrainingData, params: dict | None = None) -> tuple[xgb.XGBClassi
         "feature_importance": dict(sorted(importance.items(), key=lambda kv: -kv[1])),
     }
     return model, record
+
+
+def best_booster(model: xgb.XGBClassifier) -> xgb.Booster:
+    """The trained model cut down to the trees early stopping chose - the one to save.
+
+    Early stopping keeps training EARLY_STOPPING_ROUNDS trees past the best round
+    before it gives up, and those extra trees stay inside the model. score() skips
+    them, but anything that loads the saved file (like SageMaker's container) uses
+    every tree in it. Saving only the best trees makes the saved model score exactly
+    like the model we evaluated.
+    """
+    return model.get_booster()[: model.best_iteration + 1]
 
 
 def score(model: xgb.XGBClassifier, part) -> np.ndarray:

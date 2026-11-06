@@ -10,8 +10,25 @@ drift detection, retraining, DR – not model accuracy.
 
 ## Status
 
-Phase 1 (foundations, data and baseline model) – in progress. Each phase's plan, decisions and
-costs are written up in `docs/` when the phase completes.
+Phase 1 (foundations, data and baseline model) – complete. Phase 2 (streaming and serving) –
+in progress.
+
+### Phase 1 – data and baseline model
+
+- **Data:** `transactions/v2` – 30 days, 10,000 cards, 506,357 transactions, 0.49% fraud in
+  three styles (card testing, account takeover, online fraud). Rebuilt exactly from seed 42;
+  table fingerprints are in its manifest. (v1 is kept unchanged; v2 fixed fraud tailing off at
+  the end of the period.)
+- **Features:** 8 per-transaction and 6 card-history features (schema v1), calculated by one
+  `FeatureBuilder` for both training and live scoring. Tests guard against leakage and
+  training-serving skew.
+- **Baseline model:** XGBoost, split by time (days 1–21 train, 22–25 validation, 26–30 test),
+  alert threshold chosen on validation for a 0.5% alert budget.
+- **Test results** (XGBoost 3.0.5, 117 trees): PR-AUC 0.795 (95% range 0.760–0.830; random
+  0.005), ~79 alerts/day, precision 0.77, recall 0.72. Recall by style: card testing 0.90,
+  account takeover 0.52, online fraud 0.43.
+- **Reproduce:** `python scripts/data/make_dataset.py --version v2 --seed 42`, then
+  `python scripts/train/train_baseline.py` and `python scripts/train/package_model.py <run>`.
 
 ## Repository layout
 
