@@ -43,6 +43,7 @@ terraform/
     10-network/        P  VPC over 3 AZs: public/app/data subnets, S3 endpoint, flow logs, security groups
     15-nat/            E  NAT gateway per AZ + default routes for the app subnets
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
+    19-ml/             P  IAM roles (endpoint, ECS tasks), model registry group
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
