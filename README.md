@@ -41,6 +41,7 @@ terraform/
     00-account/        P  budgets + ops-alerts SNS topic
     05-registry/       P  ECR repositories (simulator, consumer)
     10-network/        P  VPC over 3 AZs: public/app/data subnets, S3 endpoint, flow logs, security groups
+    15-nat/            E  NAT gateway per AZ + default routes for the app subnets
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
@@ -61,9 +62,9 @@ tests/                 pytest: generator, features, leakage, skew, reproducibili
 pyproject.toml         package definition, dependencies, pytest and ruff settings
 ```
 
-**P** = persistent (kept by the nightly teardown). Ephemeral stacks (NAT, MSK, ECS
-services, the SageMaker endpoint, Grafana) arrive in Phase 2 and are listed in
-`EPHEMERAL_STACKS` in `terraform-destroy.yml`.
+**P** = persistent (kept by the nightly teardown). **E** = ephemeral: billed by the hour,
+destroyed every night at 01:47 UTC and rebuilt with one run of Terraform Deploy (stack = all).
+Ephemeral stacks are listed in `EPHEMERAL_STACKS` in `terraform-destroy.yml`.
 
 ## Account
 

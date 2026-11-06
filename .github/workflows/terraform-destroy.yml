@@ -170,6 +170,8 @@ jobs:
 
           check "MSK clusters"      "$(aws kafka list-clusters-v2 --query 'ClusterInfoList[].ClusterName' --output text)"
           check "NAT gateways"      "$(aws ec2 describe-nat-gateways --filter Name=state,Values=pending,available --query 'NatGateways[].NatGatewayId' --output text)"
+          # Every public IPv4 address bills hourly, attached or not
+          check "Elastic IPs"       "$(aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text)"
           check "SageMaker endpoints" "$(aws sagemaker list-endpoints --query "Endpoints[?EndpointStatus!='Deleting'].EndpointName" --output text)"
           check "Training jobs"     "$(aws sagemaker list-training-jobs --status-equals InProgress --query 'TrainingJobSummaries[].TrainingJobName' --output text)"
           check "Processing jobs"   "$(aws sagemaker list-processing-jobs --status-equals InProgress --query 'ProcessingJobSummaries[].ProcessingJobName' --output text)"
