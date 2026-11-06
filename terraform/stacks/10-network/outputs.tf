@@ -17,7 +17,7 @@ output "vpc_cidr" {
 
 output "az_ids" {
   description = "The three AZ IDs in use, in order."
-  value       = var.az_ids
+  value       = local.az_ids
 }
 
 output "public_subnet_ids_by_az" {
@@ -32,12 +32,12 @@ output "app_route_table_ids_by_az" {
 
 output "app_subnet_ids" {
   description = "App subnets (one per AZ) for Fargate tasks."
-  value       = [for id in var.az_ids : aws_subnet.app[id].id]
+  value       = [for id in local.az_ids : aws_subnet.app[id].id]
 }
 
 output "data_subnet_ids" {
   description = "Data subnets (one per AZ) for the MSK brokers."
-  value       = [for id in var.az_ids : aws_subnet.data[id].id]
+  value       = [for id in local.az_ids : aws_subnet.data[id].id]
 }
 
 output "security_group_ids" {

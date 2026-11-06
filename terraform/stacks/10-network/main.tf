@@ -20,24 +20,25 @@ data "aws_availability_zones" "selected" {
 
   filter {
     name   = "zone-id"
-    values = var.az_ids
+    values = keys(var.az_slots)
   }
 }
 
 locals {
   name = var.project_name
 
-  # AZ ID -> AZ name in this account, plus a stable index for CIDR maths.
+  # AZ ID -> AZ name in this account, plus the AZ's fixed slot for CIDR maths.
   az_name_by_id = zipmap(data.aws_availability_zones.selected.zone_ids, data.aws_availability_zones.selected.names)
   azs = {
-    for i, id in var.az_ids : id => { index = i, name = local.az_name_by_id[id] }
+    for id, slot in var.az_slots : id => { slot = slot, name = local.az_name_by_id[id] }
   }
+  az_ids = keys(var.az_slots) # sorted, so outputs keep a stable order
 
-  # 10.40.0.0/16 carved up:
-  #   public 10.40.0-2.0/24    data 10.40.10-12.0/24    app 10.40.16/32/48.0/20
-  public_cidr = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 8, az.index) }
-  data_cidr   = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 8, 10 + az.index) }
-  app_cidr    = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 4, 1 + az.index) }
+  # The /16 carved up by slot (shown for 10.40.0.0/16, slots 0-2 in use):
+  #   public 10.40.0-5.0/24    data 10.40.10-15.0/24    app 10.40.16.0/20 upwards
+  public_cidr = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 8, az.slot) }
+  data_cidr   = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 8, 10 + az.slot) }
+  app_cidr    = { for id, az in local.azs : id => cidrsubnet(var.vpc_cidr, 4, 1 + az.slot) }
 }
 
 resource "aws_vpc" "main" {
