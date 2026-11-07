@@ -37,6 +37,13 @@ dev = [
   "ruff>=0.6",  # checks code style and common mistakes
   "boto3>=1.35",  # AWS SDK: uploads dataset versions to S3 (needs 1.35+ for conditional writes)
 ]
+# What the streaming apps (simulator, consumer) need on top of the core package.
+# Installed in their container images; tests don't need it.
+stream = [
+  "confluent-kafka>=2.6",  # Kafka client (librdkafka): producer, consumer, admin
+  "aws-msk-iam-sasl-signer-python>=1.0",  # signs MSK IAM tokens with the task's role
+  "boto3>=1.35",  # downloads the dataset's reference tables from S3
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
