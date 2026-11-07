@@ -12,11 +12,19 @@
 #   - Runs as an unprivileged user (uid 10001), never as root.
 #   - Built for ARM64: Fargate on Graviton costs ~20% less than x86 for the
 #     same size, and GitHub builds it natively on an ARM runner.
+#   - Debian 13 (trixie) base, with the latest OS security patches applied at
+#     build time. The first image used Debian 12 (bookworm), whose regular
+#     security support has ended: ECR's scan found 9 HIGH CVEs in its sqlite3,
+#     util-linux, zlib and glibc. Trade-off: two builds a week apart may contain
+#     slightly different OS patch levels - security over byte-for-byte
+#     reproducibility; the commit-SHA tag still identifies each build.
+#   - Every image is scanned by Trivy in CI before it can be pushed
+#     (.github/workflows/images.yml).
 # Settings come from environment variables at run time (see
 # src/fraudstream/simulator/__main__.py); nothing environment-specific is
 # baked into the image, so the same image runs anywhere.
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS build
+FROM python:3.12-slim-trixie AS build
 
 WORKDIR /src
 COPY pyproject.toml ./
@@ -24,12 +32,16 @@ COPY src ./src
 RUN pip install --no-cache-dir --prefix=/install ".[stream]"
 
 
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-trixie
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app
+# Latest OS security patches, then remove the package lists to keep it small.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --create-home --shell /usr/sbin/nologin app
 COPY --from=build /install /usr/local
 
 USER 10001
