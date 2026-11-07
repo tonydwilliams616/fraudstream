@@ -5,7 +5,10 @@
 #         1. build the image for ARM64 on a native ARM runner
 #         2. smoke-test it: run it in DRY_RUN mode against a tiny generated
 #            dataset and check it prints the expected messages - no AWS needed
-#         3. on main only: push it to ECR as fs/<app>:<commit SHA>
+#         3. scan it with Trivy (OS and Python packages): any HIGH or CRITICAL
+#            vulnerability that has a fix fails the build, so a vulnerable
+#            image can never be pushed
+#         4. on main only: push it to ECR as fs/<app>:<commit SHA>
 # Why: a pull request proves the image builds and starts; only reviewed code on
 #       main is published. Tags are the full commit SHA and the repositories
 #       are immutable, so an image tag can never be overwritten - "which code is
@@ -84,6 +87,27 @@ jobs:
             echo "::error::expected 5 messages, got $count"
             exit 1
           fi
+
+      # Trivy runs from its official image pinned by DIGEST, not by tag. In
+      # March 2026 Trivy's own release tags were hijacked (CVE-2026-33634):
+      # 76 of 77 trivy-action tags were re-pointed at credential-stealing code.
+      # A tag can be moved; a digest is the image's content hash and can't be.
+      # Version 0.75.0 (Oct 2026); the digest was read from Docker Hub.
+      # --ignore-unfixed: fail only on findings we can actually fix by updating.
+      - name: Vulnerability scan (Trivy)
+        env:
+          TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            "$TRIVY_IMAGE" image \
+            --scanners vuln \
+            --pkg-types os,library \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --no-progress \
+            "$IMAGE"
 
       - name: Configure AWS credentials
         if: github.event_name != 'pull_request'
