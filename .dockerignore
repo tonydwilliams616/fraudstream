@@ -1,0 +1,12 @@
+# -----------------------------------------------------------------------------
+# .dockerignore - files never sent to `docker build`.
+# The images only need pyproject.toml and src/. Everything else is excluded so
+# builds are fast and nothing local (datasets, models, credentials, the venv)
+# can end up inside an image by accident.
+# -----------------------------------------------------------------------------
+*
+!pyproject.toml
+!src/
+**/__pycache__
+**/*.pyc
+**/*.egg-info

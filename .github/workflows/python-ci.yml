@@ -2,7 +2,7 @@
 # python-ci.yml - checks the Python code on every pull request and push to main.
 #
 # What: installs the fraudstream package exactly as you do locally
-#       (pip install -e ".[dev]"), then runs:
+#       (pip install -e ".[dev,train]"), then runs:
 #         - ruff check          lint: common mistakes, unused imports, etc.
 #         - ruff format --check style: code must already be formatted
 #         - pytest              every test in tests/, including the leakage,
@@ -49,7 +49,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,train]"
       - name: Lint
         run: ruff check --output-format=github .
       - name: Formatting
@@ -66,7 +66,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,train]"
       - name: Test
         run: python -m pytest
 
