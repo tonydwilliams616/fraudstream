@@ -58,6 +58,7 @@ scripts/
 src/fraudstream/       the Python package (pip install -e ".[dev]")
   generator/           synthetic cardholders, shops, transactions and fraud, from one seed
   features/            FeatureBuilder: the one place features are calculated
+  simulator/           streams synthetic transactions into Kafka (python -m fraudstream.simulator)
   storage.py           immutable dataset versions: Parquet + manifest, local and S3
   training/            time split, XGBoost training, evaluation at an alert budget
 tests/                 pytest: generator, features, leakage, skew, reproducibility
