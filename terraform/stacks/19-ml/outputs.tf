@@ -1,7 +1,8 @@
 # -----------------------------------------------------------------------------
 # 19-ml/outputs.tf - roles and names read by the ephemeral stacks:
 #   30-streaming  msk_cluster_name, kafka_topics
-#   35-apps       task roles, task execution role, consumer group, endpoint name
+#   35-apps       task roles, task execution role, topics, dataset version,
+#                 consumer group, endpoint name
 #   40-serving    SageMaker execution role, endpoint name, model package group
 # Publishing the names here means the cluster, topics and endpoint are always
 # called exactly what the IAM policies above allow.
@@ -47,4 +48,9 @@ output "consumer_group" {
 output "endpoint_name" {
   description = "Name 40-serving must give the SageMaker endpoint (the consumer may invoke only this one)."
   value       = local.endpoint_name
+}
+
+output "dataset_version" {
+  description = "Dataset version the apps read reference tables from (the task roles may read only this one)."
+  value       = var.dataset_version
 }
