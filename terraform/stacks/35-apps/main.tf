@@ -115,6 +115,7 @@ resource "aws_cloudwatch_log_group" "simulator" {
 
 # --- task definition ------------------------------------------------------------
 resource "aws_ecs_task_definition" "simulator" {
+  #checkov:skip=CKV_AWS_249:The roles are different (fs-ecs-task-execution vs fs-simulator, both from 19-ml); checkov cannot resolve remote-state values, so it sees two unknowns as equal
   family                   = "${local.name}-simulator"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
