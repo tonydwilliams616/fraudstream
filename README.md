@@ -48,14 +48,16 @@ terraform/
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
+  images.yml             build + smoke-test app images (ARM64); push to ECR on main
   terraform-deploy.yml   plan on PR (comment), approval-gated apply on main, one-click rebuild
   terraform-destroy.yml  nightly teardown of ephemeral stacks + SageMaker sweep + verify
+docker/                app container images (simulator.Dockerfile)
 scripts/
   setup-github.sh      repo variables, secret, environments, branch protection
   data/make_dataset.py generate a dataset version -> data/ and s3://fs-datasets-.../
   train/train_baseline.py  train + evaluate the baseline model -> models/<run-id>/
   train/package_model.py   model card + SageMaker model.tar.gz -> s3://fs-artefacts-.../
-src/fraudstream/       the Python package (pip install -e ".[dev]")
+src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   generator/           synthetic cardholders, shops, transactions and fraud, from one seed
   features/            FeatureBuilder: the one place features are calculated
   simulator/           streams synthetic transactions into Kafka (python -m fraudstream.simulator)

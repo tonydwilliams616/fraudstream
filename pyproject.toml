@@ -5,8 +5,10 @@
 #       libraries it depends on, and settings for the test runner (pytest) and
 #       the linter (ruff).
 # Why:  one file describes how to install the project, so your Mac, CI and the
-#       containers built later all install exactly the same thing with
-#       `pip install -e ".[dev]"`.
+#       containers all install from the same definition:
+#         your Mac   pip install -e ".[dev,train,stream]"
+#         CI         pip install -e ".[dev,train]"
+#         app images pip install ".[stream]" (no training libraries)
 # Concept: "src layout" - the code lives in src/fraudstream/, so tests always run
 #       against the installed package, never against stray files that happen to
 #       sit in the current folder.
@@ -24,14 +26,18 @@ dependencies = [
   "numpy>=2.0",   # fast maths on large arrays of numbers
   "pandas>=2.2",  # tables of data (one row per transaction)
   "pyarrow>=16",  # reads and writes Parquet, the compact file format for datasets
+]
+
+[project.optional-dependencies]
+# Training and evaluation (fraudstream.training). Kept out of the core so the app
+# images don't carry ~200 MB of libraries they never use.
+train = [
   # The model: gradient-boosted decision trees. Pinned to the release line served by
   # SageMaker's built-in XGBoost container (image 3.0-5), so the endpoint loads a model
   # saved by the same XGBoost that trained it (training-serving parity).
   "xgboost>=3.0,<3.1",
   "scikit-learn>=1.5",  # standard evaluation metrics (PR-AUC, ROC-AUC)
 ]
-
-[project.optional-dependencies]
 dev = [
   "pytest>=8",  # runs the tests in tests/
   "ruff>=0.6",  # checks code style and common mistakes
