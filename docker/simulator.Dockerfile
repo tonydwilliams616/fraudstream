@@ -9,7 +9,8 @@
 #     reach the image that runs.
 #   - Only what the simulator needs: the core package plus the `stream` extra
 #     (Kafka client, MSK IAM signer, boto3) - not the training libraries.
-#   - Runs as an unprivileged user (uid 10001), never as root.
+#   - Runs as an unprivileged user (uid 10001), never as root, with /tmp as
+#     its only writable path (see the VOLUME note below).
 #   - Built for ARM64: Fargate on Graviton costs ~20% less than x86 for the
 #     same size, and GitHub builds it natively on an ARM runner.
 #   - Debian 13 (trixie) base, with the latest OS security patches applied at
@@ -43,6 +44,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --create-home --shell /usr/sbin/nologin app
 COPY --from=build /install /usr/local
+
+# /tmp is the only writable place at run time: ECS mounts a scratch volume
+# there and the root filesystem is read-only. Declaring it a VOLUME makes
+# Fargate copy the image's /tmp - including its world-writable 1777
+# permissions - into that volume. Without it the volume is root-owned 0755
+# and the unprivileged user can't write its dataset cache.
+VOLUME ["/tmp"]
 
 USER 10001
 WORKDIR /home/app
