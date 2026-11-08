@@ -50,7 +50,9 @@ locals {
   name          = var.project_name
   ml            = data.terraform_remote_state.ml.outputs
   model_version = regex("[0-9]+$", var.model_package_arn) # e.g. "1"
-  capture_uri   = "s3://${data.terraform_remote_state.data.outputs.bucket_names["capture"]}/${local.ml.endpoint_name}"
+  # SageMaker appends <endpoint>/<variant>/<yyyy>/<mm>/<dd>/<hh>/ to this prefix,
+  # so files land in datacapture/fs-fraud/AllTraffic/... - Model Monitor reads them there.
+  capture_uri = "s3://${data.terraform_remote_state.data.outputs.bucket_names["capture"]}/datacapture"
 }
 
 resource "aws_sagemaker_model" "fraud" {
