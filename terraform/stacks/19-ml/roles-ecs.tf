@@ -12,7 +12,9 @@
 # per request, so each app is limited to its own topics:
 #   simulator  - create + write `transactions`
 #   consumer   - read `transactions` as group fs-scorer; create + write `scored`
-#                and `fraud.alerts`; invoke the endpoint; archive to S3
+#                and `fraud.alerts`; invoke the endpoint; look up which model
+#                package the endpoint serves (read-only Describe calls, for its
+#                threshold and feature contract); archive to S3
 # Topics are created by the app that writes them (create-if-missing at start),
 # because auto topic creation is switched off on the cluster.
 # -----------------------------------------------------------------------------
@@ -131,6 +133,24 @@ data "aws_iam_policy_document" "consumer" {
     sid       = "InvokeFraudEndpoint"
     actions   = ["sagemaker:InvokeEndpoint"]
     resources = ["arn:aws:sagemaker:${var.aws_region}:${var.aws_account_id}:endpoint/${local.endpoint_name}"]
+  }
+
+  # endpoint -> endpoint config -> model -> model package: how the consumer
+  # finds the deployed model's threshold and feature contract (read-only).
+  statement {
+    sid = "DescribeDeployedModel"
+    actions = [
+      "sagemaker:DescribeEndpoint",
+      "sagemaker:DescribeEndpointConfig",
+      "sagemaker:DescribeModel",
+      "sagemaker:DescribeModelPackage",
+    ]
+    resources = [
+      "arn:aws:sagemaker:${var.aws_region}:${var.aws_account_id}:endpoint/${local.endpoint_name}",
+      "arn:aws:sagemaker:${var.aws_region}:${var.aws_account_id}:endpoint-config/${local.endpoint_name}-*",
+      "arn:aws:sagemaker:${var.aws_region}:${var.aws_account_id}:model/${local.endpoint_name}-*",
+      "arn:aws:sagemaker:${var.aws_region}:${var.aws_account_id}:model-package/${aws_sagemaker_model_package_group.fraud.model_package_group_name}/*",
+    ]
   }
 
   statement {
