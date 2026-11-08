@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# 35-apps/variables.tf - which image to run, how fast to send, and task size.
+# 35-apps/variables.tf - which images to run, how fast to send, and task sizes.
 # Names (topics, roles, buckets, cluster) aren't here: they come from the
 # stacks that own them, so the apps always match their IAM permissions.
 # -----------------------------------------------------------------------------
@@ -60,4 +60,33 @@ variable "log_retention_days" {
   description = "How long app logs are kept in CloudWatch Logs."
   type        = number
   default     = 7
+}
+
+variable "consumer_image_tag" {
+  description = "Consumer image tag (a commit SHA) to run. null = the most recently pushed image. Either way the task definition pins the image by digest."
+  type        = string
+  default     = null
+}
+
+variable "consumer_desired_count" {
+  description = "Consumer tasks. Up to 6 - one per partition of `transactions`; more would sit idle. 0 pauses scoring (transactions wait in Kafka)."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.consumer_desired_count >= 0 && var.consumer_desired_count <= 6
+    error_message = "consumer_desired_count must be between 0 and 6 (the topic has 6 partitions)."
+  }
+}
+
+variable "consumer_cpu" {
+  description = "Consumer task CPU units (1024 = 1 vCPU)."
+  type        = number
+  default     = 512
+}
+
+variable "consumer_memory" {
+  description = "Consumer task memory in MiB: reference tables, every card's recent history and up to a minute of buffered records."
+  type        = number
+  default     = 1024
 }
