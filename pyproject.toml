@@ -40,7 +40,8 @@ train = [
 ]
 dev = [
   "pytest>=8",  # runs the tests in tests/
-  "ruff>=0.6",  # checks code style and common mistakes
+  # Pinned so the Mac and CI run exactly the same lint rules (newer ruff adds rules).
+  "ruff==0.17.4",  # checks code style and common mistakes
   "boto3>=1.35",  # AWS SDK: uploads dataset versions to S3 (needs 1.35+ for conditional writes)
 ]
 # What the streaming apps (simulator, consumer) need on top of the core package.

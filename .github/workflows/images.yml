@@ -1,10 +1,12 @@
 # -----------------------------------------------------------------------------
 # images.yml - builds, smoke-tests and publishes the app container images.
 #
-# What: for each app (simulator now; consumer later):
+# What: for each app (simulator, consumer):
 #         1. build the image for ARM64 on a native ARM runner
-#         2. smoke-test it: run it in DRY_RUN mode against a tiny generated
-#            dataset and check it prints the expected messages - no AWS needed
+#         2. smoke-test it, no AWS needed: the simulator runs in DRY_RUN mode
+#            against a tiny generated dataset and must print 5 messages; the
+#            consumer must import its Kafka/AWS libraries and refuse to start
+#            without BOOTSTRAP_SERVERS (its settings check)
 #         3. scan it with Trivy (OS and Python packages): any HIGH or CRITICAL
 #            vulnerability that has a fix fails the build, so a vulnerable
 #            image can never be pushed
@@ -54,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [simulator]
+        app: [simulator, consumer]
     env:
       IMAGE: fs-${{ matrix.app }}:${{ github.sha }}
     steps:
@@ -87,6 +89,21 @@ jobs:
             echo "::error::expected 5 messages, got $count"
             exit 1
           fi
+
+      # The consumer needs Kafka, SageMaker and S3 to do real work, so the smoke
+      # test proves what it can without them: its libraries import, and the
+      # program starts, reads its settings and stops with a clear error when
+      # BOOTSTRAP_SERVERS is missing.
+      - name: Smoke test
+        if: matrix.app == 'consumer'
+        run: |
+          docker run --rm --entrypoint python "$IMAGE" -c "import confluent_kafka, aws_msk_iam_sasl_signer, boto3, fraudstream.consumer.runner; print('imports ok')"
+          if output=$(docker run --rm "$IMAGE" 2>&1); then
+            echo "::error::consumer started without BOOTSTRAP_SERVERS"
+            exit 1
+          fi
+          echo "$output" | tail -3
+          echo "$output" | grep -q "BOOTSTRAP_SERVERS is required" || { echo "::error::unexpected failure"; exit 1; }
 
       # Trivy runs from its official image pinned by DIGEST, not by tag. In
       # March 2026 Trivy's own release tags were hijacked (CVE-2026-33634):
