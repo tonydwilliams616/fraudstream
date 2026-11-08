@@ -147,13 +147,14 @@ def main() -> int:
         consumer_config(settings.bootstrap_servers, settings.region, client_id, settings.group_id)
     )
 
+    archive = ArchiveBuffer(
+        s3, settings.archive_bucket, socket.gethostname(), max_age_s=settings.archive_seconds
+    )
     runner = Runner(
         consumer,
         producer,
         Scorer(builder, runtime, settings.endpoint, model),
-        ArchiveBuffer(
-            s3, settings.archive_bucket, socket.gethostname(), max_age_s=settings.archive_seconds
-        ),  # fmt: skip
+        archive,
         settings.scored_topic,
         settings.alerts_topic,
         current_model,

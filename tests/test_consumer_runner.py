@@ -149,7 +149,7 @@ def test_checkpoint_confirms_then_archives_then_commits():
 
 
 def test_unconfirmed_records_mean_no_archive_and_no_commit():
-    r, events, clock = runner([[Msg(tx(0))]], unconfirmed=3)
+    r, events, _ = runner([[Msg(tx(0))]], unconfirmed=3)
     r.step()
     with pytest.raises(DeliveryError):
         r.checkpoint()
