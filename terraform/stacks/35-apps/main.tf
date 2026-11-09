@@ -64,12 +64,13 @@ data "terraform_remote_state" "streaming" {
     region = var.aws_region
   }
 
-  # After a teardown the state still exists but has no outputs. Say so plainly
-  # instead of failing on "Unsupported attribute" further down.
+  # After a teardown the state still exists but has no outputs; while a deploy is
+  # still creating MSK it has some outputs but no broker addresses yet. Say so
+  # plainly instead of failing on "Unsupported attribute" further down.
   lifecycle {
     postcondition {
       condition     = can(self.outputs.bootstrap_brokers_iam) && can(self.outputs.ecs_cluster_arn)
-      error_message = "30-streaming is not up (its state has no outputs). Apply 15-nat and 30-streaming first, e.g. Terraform Deploy with stack = all."
+      error_message = "30-streaming isn't fully up (its state has no MSK broker addresses or ECS cluster). Apply 15-nat and 30-streaming first (Terraform Deploy, stack = all), or wait for a running deploy to finish creating MSK."
     }
   }
 }

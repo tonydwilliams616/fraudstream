@@ -247,7 +247,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           role-session-name: gha-apply-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
-          role-duration-seconds: 3600
+          # 2 h (the role's maximum, terraform/bootstrap): a full rebuild can run
+          # ~45-60 min, and expired credentials mid-apply leave stacks half-built.
+          role-duration-seconds: 7200
 
       - uses: hashicorp/setup-terraform@v4
         with:
