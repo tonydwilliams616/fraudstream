@@ -130,11 +130,14 @@ data "aws_iam_policy_document" "github_apply_trust" {
   }
 }
 
+# Sessions last up to 2 hours: a full rebuild (MSK + endpoint) takes ~45-60
+# minutes, and credentials expiring mid-apply would leave stacks half-built.
+# The deploy and destroy workflows request 2 h (role-duration-seconds: 7200).
 resource "aws_iam_role" "github_apply" {
   name                 = "${var.project_name}-github-apply"
   description          = "Assumed by GitHub Actions in the production/teardown environments to apply and destroy stacks"
   assume_role_policy   = data.aws_iam_policy_document.github_apply_trust.json
-  max_session_duration = 3600
+  max_session_duration = 7200
 }
 
 # Broad on purpose for now: the apply role will create VPCs, MSK, SageMaker,
