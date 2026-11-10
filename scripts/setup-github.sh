@@ -5,7 +5,8 @@
 #
 # What it sets on tonydwilliams616/fraudstream:
 #   1. Repository VARIABLES  AWS_REGION, AWS_PLAN_ROLE_ARN, AWS_APPLY_ROLE_ARN,
-#                            AWS_ECR_PUSH_ROLE_ARN (read from bootstrap outputs)
+#                            AWS_ECR_PUSH_ROLE_ARN, AWS_PIPELINE_ROLE_ARN
+#                            (read from bootstrap outputs)
 #   2. Repository SECRET     ALERT_EMAIL (prompted; becomes TF_VAR_alert_email)
 #   3. ENVIRONMENTS          production - you must approve every apply;
 #                                         deployable from main only
@@ -38,12 +39,14 @@ echo "==> Reading bootstrap outputs"
 PLAN_ROLE=$(out github_plan_role_arn)
 APPLY_ROLE=$(out github_apply_role_arn)
 ECR_ROLE=$(out github_ecr_push_role_arn)
+PIPELINE_ROLE=$(out github_pipeline_role_arn)
 
 echo "==> 1. Repository variables"
 gh variable set AWS_REGION            --repo "$REPO" --body "$REGION"
 gh variable set AWS_PLAN_ROLE_ARN     --repo "$REPO" --body "$PLAN_ROLE"
 gh variable set AWS_APPLY_ROLE_ARN    --repo "$REPO" --body "$APPLY_ROLE"
 gh variable set AWS_ECR_PUSH_ROLE_ARN --repo "$REPO" --body "$ECR_ROLE"
+gh variable set AWS_PIPELINE_ROLE_ARN --repo "$REPO" --body "$PIPELINE_ROLE"
 
 echo "==> 2. Secret ALERT_EMAIL (receives budget, anomaly and ops alerts)"
 if gh secret list --repo "$REPO" | grep -q '^ALERT_EMAIL'; then
