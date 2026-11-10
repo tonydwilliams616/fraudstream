@@ -31,6 +31,7 @@ resource "aws_iam_role" "sagemaker_pipeline" {
 }
 
 data "aws_iam_policy_document" "sagemaker_pipeline" {
+  #checkov:skip=CKV_AWS_356:PutMetricData and ListModelPackages accept no resource ARN; PutMetricData is limited to SageMaker namespaces by a condition
   statement {
     sid       = "ReadDatasets"
     actions   = ["s3:GetObject"]
