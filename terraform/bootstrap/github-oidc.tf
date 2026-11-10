@@ -1,12 +1,13 @@
 # -----------------------------------------------------------------------------
 # bootstrap/github-oidc.tf - lets GitHub Actions use AWS without stored keys.
 #
-# What: the GitHub OIDC identity provider plus three roles, each trusted only
+# What: the GitHub OIDC identity provider plus four roles, each trusted only
 #       from one kind of workflow run:
 #         plan     - pull requests            -> read-only + state read/lock
 #         apply    - "production"/"teardown"   -> admin (apply and nightly destroy)
 #                    GitHub environments
 #         ecr-push - pushes to main           -> push images to fs/* repos only
+#         pipeline - runs on main             -> upsert/start the training pipeline
 # Why:  short-lived credentials per run instead of long-lived access keys in
 #       GitHub secrets. The trust policy's "sub" condition decides WHICH runs
 #       get WHICH role, so a pull request (which anyone could open on a public
@@ -210,4 +211,90 @@ resource "aws_iam_role_policy" "github_ecr_push" {
   name   = "ecr-push"
   role   = aws_iam_role.github_ecr_push.id
   policy = data.aws_iam_policy_document.github_ecr_push.json
+}
+
+# -----------------------------------------------------------------------------
+# PIPELINE role - assumable only from workflow runs on main (merges and manual
+# "run now"). Upserts the fs-fraud-training SageMaker Pipeline, uploads its
+# training code, and starts and watches runs. It can't change the pipeline's
+# permissions: it may only PASS the existing fs-sagemaker-pipeline role (19-ml),
+# and only to SageMaker.
+# -----------------------------------------------------------------------------
+locals {
+  pipeline_name     = "${var.project_name}-fraud-training"
+  pipeline_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-sagemaker-pipeline"
+  pipeline_arn      = "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:pipeline/${local.pipeline_name}"
+  artefacts_bucket  = "${var.project_name}-artefacts-${data.aws_caller_identity.current.account_id}"
+}
+
+data "aws_iam_policy_document" "github_pipeline_trust" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["${local.github_oidc_subject_prefix}:ref:refs/heads/main"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_pipeline" {
+  name                 = "${var.project_name}-github-pipeline"
+  description          = "Assumed by GitHub Actions on main to upsert and run the training pipeline"
+  assume_role_policy   = data.aws_iam_policy_document.github_pipeline_trust.json
+  max_session_duration = 3600
+}
+
+data "aws_iam_policy_document" "github_pipeline" {
+  statement {
+    sid = "ManageTrainingPipeline"
+    actions = [
+      "sagemaker:AddTags",
+      "sagemaker:CreatePipeline",
+      "sagemaker:DescribePipeline",
+      "sagemaker:DescribePipelineDefinitionForExecution",
+      "sagemaker:DescribePipelineExecution",
+      "sagemaker:ListPipelineExecutionSteps",
+      "sagemaker:StartPipelineExecution",
+      "sagemaker:StopPipelineExecution",
+      "sagemaker:UpdatePipeline",
+    ]
+    resources = [local.pipeline_arn, "${local.pipeline_arn}/execution/*"]
+  }
+
+  statement {
+    sid       = "PassPipelineRole"
+    actions   = ["iam:PassRole"]
+    resources = [local.pipeline_role_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["sagemaker.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "UploadTrainingCode"
+    actions   = ["s3:PutObject"]
+    resources = ["arn:aws:s3:::${local.artefacts_bucket}/models/fraud-pipeline/code/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_pipeline" {
+  name   = "pipeline"
+  role   = aws_iam_role.github_pipeline.id
+  policy = data.aws_iam_policy_document.github_pipeline.json
 }
