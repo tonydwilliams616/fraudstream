@@ -4,6 +4,7 @@
 #   35-apps       task roles, task execution role, topics, dataset version,
 #                 consumer group, endpoint name
 #   40-serving    SageMaker execution role, endpoint name, model package group
+#   pipeline      training pipeline role, name and S3 prefix (pipelines/, GitHub Actions)
 # Publishing the names here means the cluster, topics and endpoint are always
 # called exactly what the IAM policies above allow.
 # -----------------------------------------------------------------------------
@@ -53,4 +54,19 @@ output "endpoint_name" {
 output "dataset_version" {
   description = "Dataset version the apps read reference tables from (the task roles may read only this one)."
   value       = var.dataset_version
+}
+
+output "pipeline_role_arn" {
+  description = "Role the training pipeline and its jobs run as."
+  value       = aws_iam_role.sagemaker_pipeline.arn
+}
+
+output "pipeline_name" {
+  description = "Name of the SageMaker training pipeline (created by the pipeline workflow)."
+  value       = local.pipeline_name
+}
+
+output "pipeline_s3_prefix" {
+  description = "Where pipeline runs and code live in the artefacts bucket."
+  value       = local.pipeline_prefix
 }

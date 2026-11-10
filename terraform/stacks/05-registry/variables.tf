@@ -28,6 +28,7 @@ variable "repositories" {
   default = [
     "simulator", # produces synthetic card transactions to Kafka (Phase 2)
     "consumer",  # reads Kafka, builds features, calls the SageMaker endpoint (Phase 2)
+    "pipeline",  # the training pipeline's prepare/evaluate/register steps (Phase 3)
   ]
 }
 

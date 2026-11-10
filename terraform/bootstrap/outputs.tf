@@ -26,3 +26,8 @@ output "github_ecr_push_role_arn" {
   description = "Role for pushing images from main - GitHub variable AWS_ECR_PUSH_ROLE_ARN."
   value       = aws_iam_role.github_ecr_push.arn
 }
+
+output "github_pipeline_role_arn" {
+  description = "Role for upserting and starting the training pipeline from main - GitHub variable AWS_PIPELINE_ROLE_ARN."
+  value       = aws_iam_role.github_pipeline.arn
+}
