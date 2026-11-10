@@ -1,12 +1,14 @@
 # -----------------------------------------------------------------------------
 # images.yml - builds, smoke-tests and publishes the app container images.
 #
-# What: for each app (simulator, consumer):
-#         1. build the image for ARM64 on a native ARM runner
+# What: for each image (simulator and consumer on ARM64; pipeline on x86):
+#         1. build it natively: ARM64 runner for the Fargate apps, x86 runner for
+#            the pipeline image (SageMaker Processing runs on x86)
 #         2. smoke-test it, no AWS needed: the simulator runs in DRY_RUN mode
 #            against a tiny generated dataset and must print 5 messages; the
 #            consumer must import its Kafka/AWS libraries and refuse to start
-#            without BOOTSTRAP_SERVERS (its settings check)
+#            without BOOTSTRAP_SERVERS (its settings check); the pipeline image
+#            runs prepare -> train -> evaluate on a tiny generated dataset
 #         3. scan it with Trivy (OS and Python packages): any HIGH or CRITICAL
 #            vulnerability that has a fix fails the build, so a vulnerable
 #            image can never be pushed
@@ -49,14 +51,20 @@ concurrency:
 jobs:
   image:
     name: image (${{ matrix.app }})
-    runs-on: ubuntu-24.04-arm # native ARM64 build for Fargate on Graviton
+    runs-on: ${{ matrix.runner }} # native build: no emulation, no surprises
     permissions:
       contents: read
       id-token: write # to assume the ECR push role on main
     strategy:
       fail-fast: false
       matrix:
-        app: [simulator, consumer]
+        include:
+          - app: simulator
+            runner: ubuntu-24.04-arm # ARM64 for Fargate on Graviton
+          - app: consumer
+            runner: ubuntu-24.04-arm
+          - app: pipeline
+            runner: ubuntu-24.04 # x86 for SageMaker Processing
     env:
       IMAGE: fs-${{ matrix.app }}:${{ github.sha }}
     steps:
@@ -104,6 +112,27 @@ jobs:
           fi
           echo "$output" | tail -3
           echo "$output" | grep -q "BOOTSTRAP_SERVERS is required" || { echo "::error::unexpected failure"; exit 1; }
+
+      # The whole pipeline in miniature, no AWS: generate a tiny dataset, prepare
+      # it, run the training entry point (as SageMaker's XGBoost container would),
+      # pack the model the way SageMaker does, then evaluate with no champion.
+      - name: Smoke test
+        if: matrix.app == 'pipeline'
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            set -e
+            python -c "
+          from fraudstream.generator.dataset import DatasetParams, generate_dataset
+          from fraudstream.storage import save_version
+          save_version(generate_dataset(DatasetParams(seed=1, n_cards=1500, n_merchants=300, days=10)), \"/tmp/ds\", \"v1\")
+          "
+            python -m fraudstream.pipeline prepare --dataset /tmp/ds/transactions/v1 --out /tmp/data --train-days 7 --valid-days 2
+            SM_CHANNEL_DATA=/tmp/data SM_MODEL_DIR=/tmp/model python -m fraudstream.pipeline.train_entry
+            mkdir -p /tmp/modeltar && tar -czf /tmp/modeltar/model.tar.gz -C /tmp/model xgboost-model
+            python -m fraudstream.pipeline evaluate --model /tmp/modeltar --data /tmp/data --out /tmp/eval \
+              --run-id smoke --no-champion --min-pr-auc 0
+            python -c "import json; s=json.load(open(\"/tmp/eval/evaluation.json\")); assert s[\"gate\"][\"passed\"], s; print(\"pipeline smoke test ok\")"
+          '
 
       # Trivy runs from its official image pinned by DIGEST, not by tag. In
       # March 2026 Trivy's own release tags were hijacked (CVE-2026-33634):

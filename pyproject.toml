@@ -51,6 +51,12 @@ stream = [
   "aws-msk-iam-sasl-signer-python>=1.0",  # signs MSK IAM tokens with the task's role
   "boto3>=1.35",  # downloads the dataset's reference tables from S3
 ]
+# What the training pipeline's own image needs (prepare, evaluate, register steps):
+# the training libraries plus the AWS SDK for the registry and S3.
+pipeline = [
+  "fraudstream[train]",
+  "boto3>=1.35",  # reads the champion from the model registry, registers challengers
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
