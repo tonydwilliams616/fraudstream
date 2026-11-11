@@ -1,0 +1,138 @@
+# -----------------------------------------------------------------------------
+# training-pipeline.yml - publishes the SageMaker training pipeline and runs it.
+#
+# What: runs `python -m fraudstream.pipeline.launch`, which uploads the training
+#       code, upserts the fs-fraud-training pipeline, starts a run and follows it
+#       to the end (prepare -> train -> evaluate -> gate -> register or reject).
+# When: 1. automatically, after "Container images" succeeds for a push to main
+#          that changed model code (pipeline, training, features, generator,
+#          storage, registry, pyproject.toml or the pipeline Dockerfile). Waiting
+#          for the image workflow means fs/pipeline:<commit> exists before any
+#          step asks for it. Other changes (the consumer, docs) don't retrain.
+#       2. by hand (Run workflow), optionally with hyperparameter overrides and
+#          expect=rejected - how the gate is tested with a deliberately weak model.
+# Version: the run uses ONE commit for everything - the code it checks out, the
+#       code bundle it uploads, the image tag and the GitCommit lineage field.
+#       By hand, that's the newest commit on main that built images, unless one
+#       is given.
+# Auth: fs-github-pipeline, which trusts only main and can only manage this one
+#       pipeline, pass its role to SageMaker and upload code (terraform/bootstrap).
+# Cost: ~$0.05-0.10 per run (four short ml.m5.large jobs); nothing hourly.
+# -----------------------------------------------------------------------------
+name: Training pipeline
+
+on:
+  workflow_run:
+    workflows: ["Container images"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit to run (default: newest commit on main that built images)"
+        required: false
+      dataset_version:
+        description: "Dataset version (blank = pipeline default)"
+        required: false
+      n_estimators:
+        description: "Override n_estimators (blank = default)"
+        required: false
+      max_depth:
+        description: "Override max_depth (blank = default)"
+        required: false
+      learning_rate:
+        description: "Override learning_rate (blank = default)"
+        required: false
+      expect:
+        description: "How the run should end"
+        type: choice
+        options: [registered, rejected]
+        default: registered
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-pipeline # one run at a time; queued runs wait, never cancel
+  cancel-in-progress: false
+
+env:
+  # Changes that should trigger retraining (matched against the merge's files).
+  MODEL_PATHS: '^(src/fraudstream/(pipeline|training|features|generator)/|src/fraudstream/(storage|registry)\.py$|pyproject\.toml$|docker/pipeline\.Dockerfile$)'
+
+jobs:
+  run:
+    name: run pipeline
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # to assume fs-github-pipeline
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history: needed to pick and inspect the commit
+
+      - name: Choose the commit
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_COMMIT: ${{ inputs.commit }}
+        run: |
+          if [ "$EVENT" = "workflow_run" ]; then
+            sha="$HEAD_SHA"
+            if git diff --name-only "$sha~1" "$sha" | grep -qE "$MODEL_PATHS"; then
+              run=true
+            else
+              run=false
+              echo "No model code changed in $sha - nothing to retrain." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            sha="${INPUT_COMMIT:-$(git log -1 --format=%H -- src pyproject.toml docker .dockerignore .github/workflows/images.yml)}"
+            run=true
+          fi
+          git checkout --quiet --detach "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "Commit: $sha (run: $run)"
+
+      - uses: actions/setup-python@v6
+        if: steps.pick.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        if: steps.pick.outputs.run == 'true'
+        run: pip install ".[pipeline]"
+
+      - name: Configure AWS credentials
+        if: steps.pick.outputs.run == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_PIPELINE_ROLE_ARN }}
+          role-session-name: gha-pipeline-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish, run and wait
+        if: steps.pick.outputs.run == 'true'
+        env:
+          SHA: ${{ steps.pick.outputs.sha }}
+          DATASET_VERSION: ${{ inputs.dataset_version }}
+          N_ESTIMATORS: ${{ inputs.n_estimators }}
+          MAX_DEPTH: ${{ inputs.max_depth }}
+          LEARNING_RATE: ${{ inputs.learning_rate }}
+          EXPECT: ${{ inputs.expect || 'registered' }}
+        run: |
+          python -m fraudstream.pipeline.launch \
+            --git-commit "$SHA" \
+            --region "${{ vars.AWS_REGION }}" \
+            --dataset-version "$DATASET_VERSION" \
+            --n-estimators "$N_ESTIMATORS" \
+            --max-depth "$MAX_DEPTH" \
+            --learning-rate "$LEARNING_RATE" \
+            --expect "$EXPECT" \
+            --wait
