@@ -11,7 +11,8 @@ drift detection, retraining, DR – not model accuracy.
 ## Status
 
 Phase 1 (foundations, data and baseline model) – complete. Phase 2 (streaming and serving) –
-complete. Next: Phase 3 (training pipeline and evaluation gate).
+complete. Phase 3 (training pipeline and evaluation gate) – complete. Next: Phase 4 (safe
+deployment and scaling).
 
 ### Phase 1 – data and baseline model
 
@@ -75,6 +76,50 @@ simulator (Fargate) --transactions--> MSK --> consumer (Fargate) --CSV micro-bat
 `python scripts/serve/check_endpoint.py baseline-20261106T120445Z` (parity) and
 `python scripts/ops/check_scoring.py --minutes 15` (no gaps, duplicates, latency).
 
+### Phase 3 – training pipeline and evaluation gate
+
+```
+merge to main (model code) -> Container images -> Training pipeline workflow -> SageMaker Pipeline fs-fraud-training
+
+  Prepare (fs/pipeline) -> Train (XGBoost 3.0-5, script mode) -> Evaluate (challenger vs champion, same days)
+     -> GatePassed?  yes -> Register (PendingManualApproval)
+                     no  -> GateRejected (the run fails, with the reason)
+```
+
+- **Pipeline:** the definition is built as plain data in `src/fraudstream/pipeline/definition.py`
+  (no SageMaker SDK), unit-tested in CI, and upserted and started by
+  `training-pipeline.yml` – after the images build for a merge that changed model code, or by
+  hand with hyperparameter overrides. Nothing runs between runs; each run is four short jobs.
+- **Training-serving parity by construction:** training runs in SageMaker's built-in XGBoost
+  3.0-5 image, the same image the endpoint serves with. Prepare, evaluate and register run in
+  our own `fs/pipeline` image, built from the same package.
+- **Gate (champion vs challenger):** the champion is the newest *Approved* package, re-scored
+  by the same code on the same days. The challenger needs PR-AUC ≥ 0.6, PR-AUC ≥ champion − 0.02
+  and recall ≥ champion − 0.05. The rules are code, not run-time options: changing them needs a
+  reviewed PR.
+- **Approval stays separate:** a passing model is registered as `PendingManualApproval`. The
+  pipeline's role cannot approve packages, and the endpoint still serves the version pinned in
+  `model.auto.tfvars` – training, approval and deployment are three separate decisions.
+- **Lineage:** one commit names everything in a run – the code checked out, the uploaded code
+  bundle, the image tag and the package's `GitCommit` – and the package records the dataset
+  version and fingerprint, run ID and full metrics.
+- **Least privilege:** GitHub uses `fs-github-pipeline` (main only; can manage this one pipeline,
+  pass its role to SageMaker and upload code). The jobs run as `fs-sagemaker-pipeline` (read
+  datasets and models, write only under `models/fraud-pipeline/`, register but not approve).
+
+**Measured (November 2026):**
+
+| Run | Challenger (test days) | Champion v1, same days | Gate | Result |
+|---|---|---|---|---|
+| Normal settings | PR-AUC 0.810, recall 0.725, 77 alerts/day | PR-AUC 0.795, recall 0.715 | passed (needs ≥ 0.775 and ≥ 0.665) | v2 registered, `PendingManualApproval` |
+| Deliberately weak (1 tree, depth 1) | PR-AUC 0.022, recall 0.955, 3,461 alerts/day | PR-AUC 0.795, recall 0.715 | failed: PR-AUC floor and vs champion | rejected, nothing registered |
+
+A run takes ~14 minutes and costs ~$0.10. The weak model's *recall* was higher than the
+champion's – it alerts on almost everything – which is why the gate leads with PR-AUC.
+
+**Check it yourself:** `gh workflow run training-pipeline.yml --ref main -f n_estimators=1 -f max_depth=1 -f expect=rejected`
+(the job passes only if the gate rejects the model).
+
 ## Repository layout
 
 ```
@@ -86,21 +131,22 @@ terraform/
     ecs-service/       one app on Fargate: digest-pinned image, read-only root, circuit breaker
   stacks/              one state file per stack, applied in numeric order
     00-account/        P  budgets + ops-alerts SNS topic
-    05-registry/       P  ECR repositories (simulator, consumer)
+    05-registry/       P  ECR repositories (simulator, consumer, pipeline)
     10-network/        P  VPC over 3 AZs: public/app/data subnets, S3 endpoint, flow logs, security groups
     15-nat/            E  NAT gateway per AZ + default routes for the app subnets
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
-    19-ml/             P  IAM roles (endpoint, ECS tasks), model registry group
+    19-ml/             P  IAM roles (endpoint, ECS tasks, training pipeline), model registry group
     30-streaming/      E  MSK (3 x m7g.large, KRaft, IAM auth, TLS) + ECS cluster
     35-apps/           E  simulator + consumer services
     40-serving/        E  SageMaker endpoint fs-fraud from the approved model package, data capture
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
-  images.yml             build, smoke-test and Trivy-scan app images (ARM64); push to ECR on main
+  images.yml             build, smoke-test and Trivy-scan images (apps ARM64, pipeline x86); push to ECR on main
+  training-pipeline.yml  upsert and run the SageMaker training pipeline; by hand with overrides
   terraform-deploy.yml   plan on PR (comment), approval-gated apply on main, one-click rebuild
   terraform-destroy.yml  nightly teardown of ephemeral stacks + SageMaker sweep + verify
-docker/                app container images (simulator, consumer)
+docker/                container images (simulator, consumer, pipeline steps)
 docs/security.md       image scanning policy, accepted risk, hardening backlog
 scripts/
   setup-github.sh      repo variables, secret, environments, branch protection
@@ -120,6 +166,7 @@ src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   endpoint.py          endpoint request/reply format (CSV) and parity comparison
   storage.py           immutable dataset versions: Parquet + manifest, local and S3
   training/            time split, XGBoost training, evaluation at an alert budget
+  pipeline/            pipeline steps, gate, definition and launcher (python -m fraudstream.pipeline)
 tests/                 pytest: generator, features, leakage, skew, reproducibility, registry,
                        endpoint format, consumer (scoring, checkpoint order, hand-overs), audit
 pyproject.toml         package definition, dependencies, pytest and ruff settings
