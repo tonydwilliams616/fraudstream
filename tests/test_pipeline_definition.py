@@ -129,6 +129,7 @@ def test_parameter_defaults_match_the_code():
 def test_code_bundle_has_the_entry_point_and_is_reproducible():
     first = source_bundle()
     assert first == source_bundle()  # same code -> same bytes
+    assert first[4:8] == bytes(4)  # gzip header timestamp is fixed, not "now"
     with tarfile.open(fileobj=io.BytesIO(first)) as tar:
         names = tar.getnames()
     assert names[0] == "train_entry.py"

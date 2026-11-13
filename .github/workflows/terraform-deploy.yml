@@ -17,6 +17,10 @@
 #       in the registry. Its PR plan fails if model.auto.tfvars points at one that
 #       isn't, and the apply checks again right before 40-serving (approval could
 #       be revoked after merge) - see src/fraudstream/promotion.py.
+# Plan guard: every plan is checked by src/fraudstream/deploy_guard.py, which
+#       refuses any plan that would REPLACE or DESTROY the endpoint or the MSK
+#       cluster (an outage). Red on the PR; a hard stop on apply unless the run
+#       was started by hand with allow_replace = true.
 # bootstrap/ is never deployed here - it's applied by hand by an admin.
 # -----------------------------------------------------------------------------
 name: Terraform Deploy
@@ -51,6 +55,10 @@ on:
           - 35-apps
           - 40-serving
           - 50-observability
+      allow_replace:
+        description: "Allow a plan that REPLACES the endpoint or MSK cluster (causes an outage)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -160,7 +168,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: actions/setup-python@v7
-        if: matrix.stack == 'terraform/stacks/40-serving'
         with:
           python-version: "3.12"
 
@@ -232,6 +239,11 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
+      # Red on the PR if this plan would replace the endpoint or MSK cluster.
+      - name: Plan guard
+        if: steps.plan.outputs.exitcode == '0'
+        run: terraform show -json tfplan | PYTHONPATH="$GITHUB_WORKSPACE/src" python -m fraudstream.deploy_guard
+
       - name: Fail if plan failed
         if: steps.plan.outputs.exitcode != '0'
         run: exit 1
@@ -282,6 +294,8 @@ jobs:
       - name: Apply stacks in order
         env:
           STACKS: ${{ needs.discover.outputs.stacks }}
+          # Only a hand-started run can allow it; merges never can.
+          ALLOW_REPLACE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_replace && 'true' || 'false' }}
         run: |
           echo "## Terraform apply" >> "$GITHUB_STEP_SUMMARY"
           for stack in $(echo "$STACKS" | jq -r '.[]'); do
@@ -294,6 +308,7 @@ jobs:
               cd "$stack"
               terraform init -input=false
               terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan
+              terraform show -json tfplan | PYTHONPATH="$GITHUB_WORKSPACE/src" python -m fraudstream.deploy_guard
               terraform apply -input=false -no-color -lock-timeout=5m tfplan
             )
             echo "::endgroup::"
