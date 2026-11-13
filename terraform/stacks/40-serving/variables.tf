@@ -38,9 +38,14 @@ variable "instance_type" {
 }
 
 variable "instance_count" {
-  description = "Instances behind the endpoint. 1 for now; autoscaling arrives with blue/green in Phase 4."
+  description = "Instances behind the endpoint. At least 2: a canary deployment sends 1 instance's worth of traffic to the new model, which must be at most half the fleet; 2 instances also span two Availability Zones."
   type        = number
-  default     = 1
+  default     = 2
+
+  validation {
+    condition     = var.instance_count >= 2
+    error_message = "instance_count must be at least 2 for canary deployments (a canary may be at most half the new fleet)."
+  }
 }
 
 variable "capture_sampling_percentage" {

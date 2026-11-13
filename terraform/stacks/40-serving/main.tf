@@ -5,7 +5,7 @@
 #   model            - built FROM the approved model package (not a loose S3
 #                      file), so the container image and weights are exactly
 #                      what was registered and approved
-#   endpoint config  - what to run it on (1 x ml.m5.large) and data capture:
+#   endpoint config  - what to run it on (2 x ml.m5.large) and data capture:
 #                      every request and its score copied to the capture bucket,
 #                      which Model Monitor compares with the training data to
 #                      detect drift (Phase 6)
@@ -17,14 +17,24 @@
 #     nightly rebuild restores the same version.
 #   - A new model creates a NEW model and endpoint config before the old ones
 #     are deleted (create_before_destroy), and SageMaker switches the live
-#     endpoint over without downtime. Phase 4 adds canary traffic shifting and
-#     automatic rollback on alarms.
+#     endpoint over with a blue/green CANARY deployment:
+#       1. a complete new fleet (green) starts next to the old one (blue)
+#       2. 1 of its 2 instances' worth of traffic (50%) goes to green for 5 min
+#          while the alarms in alarms.tf watch it (canary bake)
+#       3. no alarm -> all traffic moves to green; blue is kept 2 more minutes
+#          as a fast way back, then terminated
+#       any alarm during this -> all traffic returns to blue automatically
+#     Two instances because a canary must be at most half the new fleet; they
+#     also run in different Availability Zones, so one AZ failing doesn't take
+#     scoring down.
 #   - Network isolation: the model container has no network access at all. It
 #     only needs its weights, which SageMaker loads for it.
-# Not checked here: that the package is Approved (there's no Terraform data
-#   source for model packages). Promotion PRs only use Approved versions;
-#   Phase 4's deploy workflow will check it before applying.
-# Cost: ml.m5.large ~$0.115/hour while up. Create time: ~6-10 minutes.
+# Approval: Terraform has no data source for a model package's status, so the
+#   deploy workflow checks it (src/fraudstream/promotion.py): on the PR's plan,
+#   and again right before this stack is applied.
+# Cost: 2 x ml.m5.large ~$0.23/hour while up; during a deployment both fleets
+#   run (~$0.46/hour for ~15 minutes). Create time: ~6-10 minutes; a
+#   blue/green model update takes ~15 minutes.
 # -----------------------------------------------------------------------------
 data "terraform_remote_state" "data" {
   backend = "s3"
@@ -111,6 +121,36 @@ resource "aws_sagemaker_endpoint_configuration" "fraud" {
 resource "aws_sagemaker_endpoint" "fraud" {
   name                 = local.ml.endpoint_name # fs-fraud
   endpoint_config_name = aws_sagemaker_endpoint_configuration.fraud.name
+
+  # Used whenever endpoint_config_name changes (a new model, or new settings).
+  deployment_config {
+    blue_green_update_policy {
+      traffic_routing_configuration {
+        type                     = "CANARY"
+        wait_interval_in_seconds = 300 # canary bake: 5 minutes on 50% of traffic
+
+        canary_size {
+          type  = "INSTANCE_COUNT"
+          value = 1 # 1 of 2 instances - the most a canary may be is half the fleet
+        }
+      }
+
+      termination_wait_in_seconds          = 120  # keep blue 2 minutes after the switch
+      maximum_execution_timeout_in_seconds = 1800 # give up (and roll back) after 30 minutes
+    }
+
+    auto_rollback_configuration {
+      alarms {
+        alarm_name = aws_cloudwatch_metric_alarm.errors_5xx.alarm_name
+      }
+      alarms {
+        alarm_name = aws_cloudwatch_metric_alarm.errors_4xx.alarm_name
+      }
+      alarms {
+        alarm_name = aws_cloudwatch_metric_alarm.latency_p99.alarm_name
+      }
+    }
+  }
 
   tags = { ModelPackageVersion = local.model_version }
 }
