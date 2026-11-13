@@ -13,6 +13,10 @@
 #       teardown environments (see terraform/bootstrap/github-oidc.tf). It shares
 #       the "terraform-state" concurrency lock with the destroy workflow, so an
 #       apply and the nightly destroy can never run at the same time.
+# Model approval: 40-serving may only serve a model package that is Approved
+#       in the registry. Its PR plan fails if model.auto.tfvars points at one that
+#       isn't, and the apply checks again right before 40-serving (approval could
+#       be revoked after merge) - see src/fraudstream/promotion.py.
 # bootstrap/ is never deployed here - it's applied by hand by an admin.
 # -----------------------------------------------------------------------------
 name: Terraform Deploy
@@ -155,6 +159,18 @@ jobs:
           role-session-name: gha-plan-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - uses: actions/setup-python@v7
+        if: matrix.stack == 'terraform/stacks/40-serving'
+        with:
+          python-version: "3.12"
+
+      # Fails this plan (red on the PR) if the model it would deploy isn't Approved.
+      - name: Check the model is Approved
+        if: matrix.stack == 'terraform/stacks/40-serving'
+        run: |
+          pip install --quiet boto3
+          PYTHONPATH="$GITHUB_WORKSPACE/src" python -m fraudstream.promotion check --file model.auto.tfvars
+
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
@@ -256,12 +272,23 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the approval check
+        run: pip install --quiet boto3
+
       - name: Apply stacks in order
         env:
           STACKS: ${{ needs.discover.outputs.stacks }}
         run: |
           echo "## Terraform apply" >> "$GITHUB_STEP_SUMMARY"
           for stack in $(echo "$STACKS" | jq -r '.[]'); do
+            if [[ "$stack" == "terraform/stacks/40-serving" ]]; then
+              # Hard gate: never deploy a model that isn't Approved right now.
+              PYTHONPATH="$GITHUB_WORKSPACE/src" python -m fraudstream.promotion check
+            fi
             echo "::group::Apply $stack"
             (
               cd "$stack"
