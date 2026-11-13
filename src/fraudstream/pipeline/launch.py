@@ -18,6 +18,7 @@ Lineage: the code bundle and the image are both named by the same commit, and
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
 import os
@@ -44,7 +45,8 @@ GATE_FAIL_STEP = "GateRejected"
 def source_bundle() -> bytes:
     """sourcedir.tar.gz: train_entry.py at the top, the fraudstream package beside it.
 
-    Built the same way every time (sorted names, fixed timestamps), so the same
+    Built the same way every time (sorted names, fixed timestamps - including
+    gzip's own header timestamp, which tarfile would set to "now"), so the same
     code always gives the same bytes.
     """
     package = Path(fraudstream.__file__).parent
@@ -57,13 +59,13 @@ def source_bundle() -> bytes:
     entries += [(f"fraudstream/{p.relative_to(package).as_posix()}", p) for p in files]
 
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for name, path in entries:
             data = path.read_bytes()
             info = tarfile.TarInfo(name)
             info.size, info.mtime, info.mode = len(data), 0, 0o644
             tar.addfile(info, io.BytesIO(data))
-    return buf.getvalue()
+    return gzip.compress(buf.getvalue(), mtime=0)
 
 
 def upload_bundle(s3, cfg_bucket: str, git_commit: str) -> str:
