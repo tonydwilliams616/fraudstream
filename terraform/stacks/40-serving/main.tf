@@ -123,6 +123,10 @@ resource "aws_sagemaker_endpoint" "fraud" {
   endpoint_config_name = aws_sagemaker_endpoint_configuration.fraud.name
 
   # Used whenever endpoint_config_name changes (a new model, or new settings).
+  # CAREFUL: in the AWS provider, changing anything in this block (e.g. the
+  # alarm list) REPLACES the endpoint - delete then create, an outage. The plan
+  # guard (src/fraudstream/deploy_guard.py) refuses such a plan; doing it on
+  # purpose needs a hand-started deploy with allow_replace = true.
   deployment_config {
     blue_green_update_policy {
       traffic_routing_configuration {
