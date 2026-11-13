@@ -65,13 +65,21 @@ def render(package: dict) -> str:
     """model.auto.tfvars for a described model package."""
     props = package.get("CustomerMetadataProperties", {})
     approved = package.get("LastModifiedTime") or package.get("CreationTime")
+    version = package["ModelPackageVersion"]
+    description = package.get("ModelPackageDescription", "")
+    run = props.get("run_id", "?")
+    commit = props.get("git_commit", "?")[:12]
+    dataset = props.get("dataset", "?")
+    xgboost = props.get("xgboost_version", "?")
+    status = package["ModelApprovalStatus"]
+    if hasattr(approved, "strftime"):
+        status += f" ({approved:%d %b %Y})"
+    if package.get("ApprovalDescription"):
+        status += f": {package['ApprovalDescription']}"
     details = [
-        f"# Version {package['ModelPackageVersion']}: {package.get('ModelPackageDescription', '')}",
-        f"# Run {props.get('run_id', '?')}, commit {props.get('git_commit', '?')[:12]}, "
-        f"dataset {props.get('dataset', '?')}, XGBoost {props.get('xgboost_version', '?')}.",
-        f"# Status {package['ModelApprovalStatus']}"
-        + (f" ({approved:%d %b %Y})" if hasattr(approved, "strftime") else "")
-        + (f": {package['ApprovalDescription']}" if package.get("ApprovalDescription") else ""),
+        f"# Version {version}: {description}",
+        f"# Run {run}, commit {commit}, dataset {dataset}, XGBoost {xgboost}.",
+        f"# Status {status}",
     ]
     return "\n".join(
         [
