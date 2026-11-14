@@ -10,6 +10,12 @@ What:
       reads the version in model.auto.tfvars and exits 1 unless it is Approved.
       The deploy workflow runs this on the PR's plan and again right before it
       applies 40-serving.
+  python -m fraudstream.promotion verify
+      AFTER 40-serving is applied: follows the live endpoint to the model package
+      it is really serving and exits 1 unless that is the one in model.auto.tfvars.
+      Needed because a blue/green update that SageMaker abandons or rolls back
+      can still be reported by Terraform as "Modifications complete" - the
+      deploy then looks green while the old model keeps serving.
 Why: the registry's approval and git's record of what's deployed are two separate
      facts. This keeps them in step: nothing reaches the endpoint unless a person
      approved it in the registry AND a reviewed commit put it in the file.
@@ -37,6 +43,10 @@ _ARN = re.compile(
 
 class NotApproved(Exception):
     """The model package may not be deployed."""
+
+
+class NotServing(Exception):
+    """The endpoint is not serving the model package git says it should."""
 
 
 # --- the tfvars file ----------------------------------------------------------------
@@ -116,6 +126,42 @@ def check(sagemaker, arn: str) -> dict:
     return package
 
 
+def serving(sagemaker, endpoint_name: str) -> str:
+    """The model package ARN the endpoint is ACTUALLY serving right now."""
+    from botocore.exceptions import ClientError
+
+    endpoint = sagemaker.describe_endpoint(EndpointName=endpoint_name)
+    status, failure = endpoint["EndpointStatus"], endpoint.get("FailureReason")
+    if status != "InService":
+        raise NotServing(
+            f"endpoint {endpoint_name} is {status}" + (f": {failure}" if failure else "")
+        )
+    config_name = endpoint["EndpointConfigName"]
+    try:
+        config = sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
+        model_name = config["ProductionVariants"][0]["ModelName"]
+        container = sagemaker.describe_model(ModelName=model_name)["PrimaryContainer"]
+    except ClientError as err:
+        raise NotServing(
+            f"endpoint {endpoint_name} runs config {config_name}, which (or whose model) no "
+            "longer exists - a deployment that did not complete was reported as complete"
+            + (f". Last failure: {failure}" if failure else "")
+        ) from err
+    return container.get("ModelPackageName", "")
+
+
+def verify(sagemaker, endpoint_name: str, expected_arn: str) -> str:
+    """Raise NotServing unless the endpoint serves expected_arn."""
+    actual = serving(sagemaker, endpoint_name)
+    if actual != expected_arn:
+        failure = sagemaker.describe_endpoint(EndpointName=endpoint_name).get("FailureReason")
+        raise NotServing(
+            f"endpoint serves {actual or 'an unregistered model'}, but model.auto.tfvars says "
+            f"{expected_arn}" + (f". Last failure: {failure}" if failure else "")
+        )
+    return actual
+
+
 # --- command line --------------------------------------------------------------------
 def parse(argv):
     p = argparse.ArgumentParser(prog="python -m fraudstream.promotion")
@@ -123,7 +169,9 @@ def parse(argv):
     pr = sub.add_parser("promote", help="point model.auto.tfvars at an Approved version")
     pr.add_argument("--version", type=int, required=True)
     ck = sub.add_parser("check", help="exit 1 unless the deployed version is Approved")
-    for parser in (pr, ck):
+    vf = sub.add_parser("verify", help="exit 1 unless the endpoint serves the version in the file")
+    vf.add_argument("--endpoint", default="fs-fraud")
+    for parser in (pr, ck, vf):
         parser.add_argument("--file", type=Path, default=TFVARS)
     return p.parse_args(argv)
 
@@ -136,6 +184,15 @@ def main(argv: list[str] | None = None, sagemaker=None) -> int:
         import boto3
 
         sagemaker = boto3.client("sagemaker", region_name=parse_arn(target)["region"])
+
+    if args.command == "verify":
+        try:
+            verify(sagemaker, args.endpoint, target)
+        except NotServing as err:
+            print(f"NOT SERVING: {err}")
+            return 1
+        print(f"OK: {args.endpoint} is serving {GROUP}/{parse_arn(target)['version']}")
+        return 0
 
     try:
         package = check(sagemaker, target)
