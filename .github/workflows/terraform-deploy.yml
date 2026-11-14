@@ -16,7 +16,9 @@
 # Model approval: 40-serving may only serve a model package that is Approved
 #       in the registry. Its PR plan fails if model.auto.tfvars points at one that
 #       isn't, and the apply checks again right before 40-serving (approval could
-#       be revoked after merge) - see src/fraudstream/promotion.py.
+#       be revoked after merge) - see src/fraudstream/promotion.py. After
+#       40-serving is applied, `promotion verify` checks the endpoint is really
+#       serving that version (a rolled-back update can still look "complete").
 # Plan guard: every plan is checked by src/fraudstream/deploy_guard.py, which
 #       refuses any plan that would REPLACE or DESTROY the endpoint or the MSK
 #       cluster (an outage). Red on the PR; a hard stop on apply unless the run
@@ -312,5 +314,10 @@ jobs:
               terraform apply -input=false -no-color -lock-timeout=5m tfplan
             )
             echo "::endgroup::"
+            if [[ "$stack" == "terraform/stacks/40-serving" ]]; then
+              # Terraform can report a blue/green update as complete even when
+              # SageMaker abandoned or rolled it back: check what's really live.
+              PYTHONPATH="$GITHUB_WORKSPACE/src" python -m fraudstream.promotion verify
+            fi
             echo "- ✅ \`$stack\`" >> "$GITHUB_STEP_SUMMARY"
           done

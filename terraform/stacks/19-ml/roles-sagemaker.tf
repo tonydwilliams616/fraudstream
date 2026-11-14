@@ -7,6 +7,9 @@
 #     which Model Monitor reads in Phase 4 to detect drift
 #   - pull the built-in XGBoost image from AWS's own ECR repository
 #   - write its container logs to CloudWatch (/aws/sagemaker/*)
+#   - read the endpoint's rollback alarms (fs-fraud-*): during a blue/green
+#     deployment SageMaker checks them AS THIS ROLE; without this permission
+#     the new fleet is abandoned before the canary even starts
 # Phase 3 (training pipeline) adds its own permissions when it's built.
 # -----------------------------------------------------------------------------
 data "aws_iam_policy_document" "sagemaker_assume" {
@@ -70,6 +73,12 @@ data "aws_iam_policy_document" "sagemaker_execution" {
       "logs:PutLogEvents",
     ]
     resources = ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/sagemaker/*"]
+  }
+
+  statement {
+    sid       = "ReadRollbackAlarms"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${local.name}-fraud-*"]
   }
 }
 
