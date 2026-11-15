@@ -7,7 +7,7 @@
 #     which Model Monitor reads in Phase 4 to detect drift
 #   - pull the built-in XGBoost image from AWS's own ECR repository
 #   - write its container logs to CloudWatch (/aws/sagemaker/*)
-#   - read the endpoint's rollback alarms (fs-fraud-*): during a blue/green
+#   - read the endpoint's rollback alarms (DescribeAlarms on "*"): during a blue/green
 #     deployment SageMaker checks them AS THIS ROLE; without this permission
 #     the new fleet is abandoned before the canary even starts
 # Phase 3 (training pipeline) adds its own permissions when it's built.
@@ -36,6 +36,7 @@ resource "aws_iam_role" "sagemaker_execution" {
 }
 
 data "aws_iam_policy_document" "sagemaker_execution" {
+  #checkov:skip=CKV_AWS_356:DescribeAlarms must be allowed on "*" - SageMaker's blue/green alarm check is evaluated against "*", and scoping it to alarm ARNs makes the canary fail (verified with the IAM policy simulator)
   statement {
     sid       = "ReadModelArtefacts"
     actions   = ["s3:GetObject"]
@@ -75,10 +76,13 @@ data "aws_iam_policy_document" "sagemaker_execution" {
     resources = ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/sagemaker/*"]
   }
 
+  # SageMaker's alarm check is evaluated against "*": scoped to the fs-fraud-*
+  # alarm ARNs, the policy simulator says implicitDeny for "*" and SageMaker
+  # abandons the canary (seen 15 Nov). DescribeAlarms is read-only metadata.
   statement {
     sid       = "ReadRollbackAlarms"
     actions   = ["cloudwatch:DescribeAlarms"]
-    resources = ["arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${local.name}-fraud-*"]
+    resources = ["*"]
   }
 }
 
