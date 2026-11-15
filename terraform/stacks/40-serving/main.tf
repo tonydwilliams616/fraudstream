@@ -15,9 +15,14 @@
 #   - Which model runs is decided in model.auto.tfvars by a reviewed commit
 #     (GitOps): the plan shows the change, rollback is a revert, and the
 #     nightly rebuild restores the same version.
-#   - A new model creates a NEW model and endpoint config before the old ones
-#     are deleted (create_before_destroy), and SageMaker switches the live
-#     endpoint over with a blue/green CANARY deployment:
+#   - Last-known-good: model.auto.tfvars names the served version AND the
+#     previous one; both keep a model and an endpoint config. If a canary rolls
+#     back, the endpoint returns to the previous config - which must still
+#     exist. (On 14 Nov it didn't: Terraform deleted the old config after
+#     reporting the abandoned update as complete, and the endpoint was
+#     stranded.) The oldest version is only deleted by the NEXT promotion.
+#   - A new model gets its own model and endpoint config, and SageMaker switches
+#     the live endpoint over with a blue/green CANARY deployment:
 #       1. a complete new fleet (green) starts next to the old one (blue)
 #       2. 1 of its 2 instances' worth of traffic (50%) goes to green for 5 min
 #          while the alarms in alarms.tf watch it (canary bake)
@@ -57,37 +62,44 @@ data "terraform_remote_state" "ml" {
 }
 
 locals {
-  name          = var.project_name
-  ml            = data.terraform_remote_state.ml.outputs
-  model_version = regex("[0-9]+$", var.model_package_arn) # e.g. "1"
+  name = var.project_name
+  ml   = data.terraform_remote_state.ml.outputs
+  # The served version and the last-known-good one: version number => package ARN.
+  # Both get a model and an endpoint config, so a rollback always has somewhere
+  # to land (see "Last-known-good" in the header).
+  model_version = regex("[0-9]+$", var.model_package_arn) # e.g. "2"
+  versions = {
+    for arn in compact([var.model_package_arn, var.previous_model_package_arn]) :
+    regex("[0-9]+$", arn) => arn
+  }
   # SageMaker appends <endpoint>/<variant>/<yyyy>/<mm>/<dd>/<hh>/ to this prefix,
   # so files land in datacapture/fs-fraud/AllTraffic/... - Model Monitor reads them there.
   capture_uri = "s3://${data.terraform_remote_state.data.outputs.bucket_names["capture"]}/datacapture"
 }
 
 resource "aws_sagemaker_model" "fraud" {
-  name                     = "${local.name}-fraud-v${local.model_version}"
+  for_each = local.versions
+
+  name                     = "${local.name}-fraud-v${each.key}"
   execution_role_arn       = local.ml.sagemaker_execution_role_arn
   enable_network_isolation = true
 
   primary_container {
-    model_package_name = var.model_package_arn
+    model_package_name = each.value
   }
 
-  tags = { ModelPackageVersion = local.model_version }
-
-  lifecycle {
-    create_before_destroy = true
-  }
+  tags = { ModelPackageVersion = each.key }
 }
 
 resource "aws_sagemaker_endpoint_configuration" "fraud" {
   #checkov:skip=CKV_AWS_98:Endpoint storage is encrypted with the AWS-managed key; a customer-managed KMS key adds key management with no benefit for synthetic data
-  name_prefix = "${local.name}-fraud-v${local.model_version}-"
+  for_each = local.versions
+
+  name_prefix = "${local.name}-fraud-v${each.key}-"
 
   production_variants {
     variant_name           = "AllTraffic"
-    model_name             = aws_sagemaker_model.fraud.name
+    model_name             = aws_sagemaker_model.fraud[each.key].name
     instance_type          = var.instance_type
     initial_instance_count = var.instance_count
     initial_variant_weight = 1
@@ -111,16 +123,16 @@ resource "aws_sagemaker_endpoint_configuration" "fraud" {
     }
   }
 
-  tags = { ModelPackageVersion = local.model_version }
+  tags = { ModelPackageVersion = each.key }
 
   lifecycle {
-    create_before_destroy = true
+    create_before_destroy = true # a settings change (e.g. instance count) swaps configs without a gap
   }
 }
 
 resource "aws_sagemaker_endpoint" "fraud" {
   name                 = local.ml.endpoint_name # fs-fraud
-  endpoint_config_name = aws_sagemaker_endpoint_configuration.fraud.name
+  endpoint_config_name = aws_sagemaker_endpoint_configuration.fraud[local.model_version].name
 
   # Used whenever endpoint_config_name changes (a new model, or new settings).
   # CAREFUL: in the AWS provider, changing anything in this block (e.g. the
@@ -157,4 +169,18 @@ resource "aws_sagemaker_endpoint" "fraud" {
   }
 
   tags = { ModelPackageVersion = local.model_version }
+}
+
+# One-off: the model and config used to be single resources. These move them to
+# the for_each address of the version that was live when this changed (v2), so
+# Terraform renames them in state instead of recreating them. Safe to delete
+# after the next nightly teardown (the state is empty then).
+moved {
+  from = aws_sagemaker_model.fraud
+  to   = aws_sagemaker_model.fraud["2"]
+}
+
+moved {
+  from = aws_sagemaker_endpoint_configuration.fraud
+  to   = aws_sagemaker_endpoint_configuration.fraud["2"]
 }

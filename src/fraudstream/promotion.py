@@ -4,8 +4,10 @@ What:
   python -m fraudstream.promotion promote --version 2
       checks fs-fraud-detection/2 is Approved, then rewrites
       terraform/stacks/40-serving/model.auto.tfvars to serve it (with a comment
-      saying what it is and why it can be trusted). You then commit it and open
-      a PR - the promotion IS that PR.
+      saying what it is and why it can be trusted) and keeps the version it
+      replaces as previous_model_package_arn - the last-known-good that a canary
+      rollback returns to. You then commit it and open a PR - the promotion IS
+      that PR.
   python -m fraudstream.promotion check
       reads the version in model.auto.tfvars and exits 1 unless it is Approved.
       The deploy workflow runs this on the PR's plan and again right before it
@@ -35,6 +37,7 @@ from pathlib import Path
 GROUP = "fs-fraud-detection"
 TFVARS = Path("terraform/stacks/40-serving/model.auto.tfvars")
 _ARN_LINE = re.compile(r'^model_package_arn\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
+_PREVIOUS_LINE = re.compile(r'^previous_model_package_arn\s*=\s*"([^"]*)"\s*$', re.MULTILINE)
 _ARN = re.compile(
     r"^arn:aws:sagemaker:(?P<region>[a-z0-9-]+):(?P<account>\d{12}):"
     r"model-package/(?P<group>[\w-]+)/(?P<version>\d+)$"
@@ -58,6 +61,16 @@ def read_arn(text: str) -> str:
     return found[0]
 
 
+def read_previous(text: str) -> str:
+    """The last-known-good ARN kept for rollbacks ("" if there is none)."""
+    found = _PREVIOUS_LINE.findall(text)
+    if len(found) > 1:
+        raise ValueError(
+            f"expected at most one previous_model_package_arn line, found {len(found)}"
+        )
+    return found[0] if found else ""
+
+
 def parse_arn(arn: str) -> dict:
     match = _ARN.match(arn)
     if not match:
@@ -71,8 +84,8 @@ def with_version(arn: str, version: int) -> str:
     return f"arn:aws:sagemaker:{p['region']}:{p['account']}:model-package/{p['group']}/{version}"
 
 
-def render(package: dict) -> str:
-    """model.auto.tfvars for a described model package."""
+def render(package: dict, previous_arn: str = "") -> str:
+    """model.auto.tfvars serving a described package, keeping previous_arn ready."""
     props = package.get("CustomerMetadataProperties", {})
     approved = package.get("LastModifiedTime") or package.get("CreationTime")
     version = package["ModelPackageVersion"]
@@ -102,10 +115,15 @@ def render(package: dict) -> str:
             "# plan shows exactly what changes; merging + approving the deploy rolls it",
             "# out (blue/green). Rolling back = reverting the commit. The nightly rebuild",
             "# always restores this version.",
+            "# previous_model_package_arn is the last-known-good version: it stays",
+            "# deployed (model + endpoint config, no instances) so that a canary which",
+            "# rolls back has a config to return to. promote moves the served version",
+            "# here; the one before that is deleted.",
             "#",
             *details,
             "# " + "-" * 77,
-            f'model_package_arn = "{package["ModelPackageArn"]}"',
+            f'model_package_arn          = "{package["ModelPackageArn"]}"',
+            f'previous_model_package_arn = "{previous_arn}"',
             "",
         ]
     )
@@ -150,14 +168,21 @@ def serving(sagemaker, endpoint_name: str) -> str:
     return container.get("ModelPackageName", "")
 
 
-def verify(sagemaker, endpoint_name: str, expected_arn: str) -> str:
+def verify(sagemaker, endpoint_name: str, expected_arn: str, previous_arn: str = "") -> str:
     """Raise NotServing unless the endpoint serves expected_arn."""
     actual = serving(sagemaker, endpoint_name)
     if actual != expected_arn:
         failure = sagemaker.describe_endpoint(EndpointName=endpoint_name).get("FailureReason")
+        rolled_back = previous_arn and actual == previous_arn
         raise NotServing(
-            f"endpoint serves {actual or 'an unregistered model'}, but model.auto.tfvars says "
-            f"{expected_arn}" + (f". Last failure: {failure}" if failure else "")
+            (
+                f"the rollout of {expected_arn} was ROLLED BACK - the endpoint is serving the "
+                f"last-known-good {actual}. Revert the promotion commit to bring git back in line"
+                if rolled_back
+                else f"endpoint serves {actual or 'an unregistered model'}, but "
+                f"model.auto.tfvars says {expected_arn}"
+            )
+            + (f". Last failure: {failure}" if failure else "")
         )
     return actual
 
@@ -178,7 +203,8 @@ def parse(argv):
 
 def main(argv: list[str] | None = None, sagemaker=None) -> int:
     args = parse(sys.argv[1:] if argv is None else argv)
-    current = read_arn(args.file.read_text())
+    text = args.file.read_text()
+    current, previous = read_arn(text), read_previous(text)
     target = with_version(current, args.version) if args.command == "promote" else current
     if sagemaker is None:
         import boto3
@@ -187,7 +213,7 @@ def main(argv: list[str] | None = None, sagemaker=None) -> int:
 
     if args.command == "verify":
         try:
-            verify(sagemaker, args.endpoint, target)
+            verify(sagemaker, args.endpoint, target, previous)
         except NotServing as err:
             print(f"NOT SERVING: {err}")
             return 1
@@ -208,8 +234,9 @@ def main(argv: list[str] | None = None, sagemaker=None) -> int:
     if target == current:
         print(f"{GROUP}/{version} is already the deployed version - nothing to change")
         return 0
-    args.file.write_text(render(package))
+    args.file.write_text(render(package, previous_arn=current))
     print(f"Updated {args.file}: {GROUP}/{parse_arn(current)['version']} -> {version}")
+    print(f"Kept {GROUP}/{parse_arn(current)['version']} as last-known-good for rollbacks.")
     print("Next: commit it on a branch and open a PR - the plan shows the endpoint change.")
     return 0
 
