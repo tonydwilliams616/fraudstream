@@ -7,14 +7,9 @@
 # plan shows exactly what changes; merging + approving the deploy rolls it
 # out (blue/green). Rolling back = reverting the commit. The nightly rebuild
 # always restores this version.
-# previous_model_package_arn is the last-known-good version: it stays
-# deployed (model + endpoint config, no instances) so that a canary which
-# rolls back has a config to return to. promote moves the served version
-# here; the one before that is deleted.
 #
-# Version 4: DELIBERATELY BROKEN broken-demo-20261115T160723Z: expects 13 features, fails every real request. For the canary rollback test only.
-# Run broken-demo-20261115T160723Z, commit ?, dataset ?, XGBoost 3.0.5.
-# Status Approved (15 Nov 2026): ROLLBACK TEST ONLY: deliberately broken (13 features). Approved to prove canary auto-rollback; reject after the test.
+# Version 2: ijq5pvnomvfz: test PR-AUC 0.8103, recall 0.7245 at 77.4 alerts/day
+# Run ijq5pvnomvfz, commit 89815cea1ddb, dataset transactions/v2, XGBoost 3.0.5.
+# Status Approved (14 Nov 2026): Pipeline run ijq5pvnomvfz: test PR-AUC 0.810 vs v1 0.795 on the same days, recall 0.725 vs 0.715; gate passed. Approved for canary rollout.
 # -----------------------------------------------------------------------------
-model_package_arn          = "arn:aws:sagemaker:us-east-1:831547420318:model-package/fs-fraud-detection/4"
-previous_model_package_arn = "arn:aws:sagemaker:us-east-1:831547420318:model-package/fs-fraud-detection/2"
+model_package_arn = "arn:aws:sagemaker:us-east-1:831547420318:model-package/fs-fraud-detection/2"
