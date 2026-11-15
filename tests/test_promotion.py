@@ -6,7 +6,8 @@ What: reading and rewriting model.auto.tfvars (round trip, exactly one ARN), the
       promote rewrites the file only for an Approved version, check exits 1 for
       an unapproved one, and verify exits 1 whenever the live endpoint isn't
       serving the version in the file (rolled back, left on deleted objects, or
-      still updating).
+      still updating). promote keeps the replaced version as last-known-good,
+      and verify says plainly when a rollout was rolled back to it.
 Why:  this is the guard between "a model passed the gate" and "customers are
       scored by it". A bug here would let an unreviewed model into production.
 """
@@ -131,3 +132,28 @@ def test_verify_catches_an_endpoint_left_on_deleted_objects(tmp_path):
 def test_verify_fails_while_the_endpoint_is_not_in_service(tmp_path):
     path = tfvars(tmp_path, ARN2)
     assert main(["verify", "--file", str(path)], FakeEndpoint(ARN2, status="Updating")) == 1
+
+
+# --- last-known-good -------------------------------------------------------------------
+def test_promote_keeps_the_replaced_version_as_last_known_good(tmp_path):
+    from fraudstream.promotion import read_previous
+
+    path = tfvars(tmp_path)  # serving v1, no previous
+    assert read_previous(path.read_text()) == ""
+    assert (
+        main(
+            ["promote", "--version", "2", "--file", str(path)],
+            FakeRegistry({1: "Approved", 2: "Approved"}),
+        )
+        == 0
+    )
+    text = path.read_text()
+    assert read_arn(text) == ARN2
+    assert read_previous(text) == ARN1
+
+
+def test_verify_names_a_rollback_to_last_known_good(tmp_path, capsys):
+    path = tmp_path / "model.auto.tfvars"
+    path.write_text(f'model_package_arn = "{ARN2}"\nprevious_model_package_arn = "{ARN1}"\n')
+    assert main(["verify", "--file", str(path)], FakeEndpoint(ARN1)) == 1
+    assert "ROLLED BACK" in capsys.readouterr().out

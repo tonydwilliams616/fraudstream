@@ -11,9 +11,14 @@ output "model_package_arn" {
   value       = var.model_package_arn
 }
 
+output "previous_model_package_arn" {
+  description = "Last-known-good version kept ready for a rollback (empty if none)."
+  value       = var.previous_model_package_arn
+}
+
 output "model_name" {
-  description = "SageMaker model built from that package."
-  value       = aws_sagemaker_model.fraud.name
+  description = "SageMaker model built from the served package."
+  value       = aws_sagemaker_model.fraud[local.model_version].name
 }
 
 output "data_capture_uri" {

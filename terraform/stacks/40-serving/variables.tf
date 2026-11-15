@@ -31,6 +31,17 @@ variable "model_package_arn" {
   }
 }
 
+variable "previous_model_package_arn" {
+  description = "The last-known-good version, kept deployed (model + endpoint config, no instances) so a canary rollback has somewhere to land. Set by `promotion promote`; empty when there is none."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.previous_model_package_arn == "" || can(regex("^arn:aws:sagemaker:[a-z0-9-]+:[0-9]{12}:model-package/fs-fraud-detection/[0-9]+$", var.previous_model_package_arn))
+    error_message = "previous_model_package_arn must be empty or a VERSION of the fs-fraud-detection group."
+  }
+}
+
 variable "instance_type" {
   description = "Endpoint instance type. ml.m5.large (2 vCPU, 8 GiB) is ample for XGBoost at ~10 transactions/second. ~$0.115/hour."
   type        = string
