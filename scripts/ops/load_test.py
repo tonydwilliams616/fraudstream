@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 from fraudstream.endpoint import to_csv
 from fraudstream.features import FEATURE_COLUMNS
@@ -77,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
                 EndpointName=ENDPOINT, ContentType="text/csv", Accept="text/csv", Body=body
             )["Body"].read()
             ok = True
-        except Exception:  # count it and keep going: errors are part of what we measure
+        except (ClientError, BotoCoreError):  # an endpoint or network error: count it, carry on
             ok = False
         with lock:
             minute["calls"] += 1
