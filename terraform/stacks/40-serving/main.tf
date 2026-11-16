@@ -170,17 +170,3 @@ resource "aws_sagemaker_endpoint" "fraud" {
 
   tags = { ModelPackageVersion = local.model_version }
 }
-
-# One-off: the model and config used to be single resources. These move them to
-# the for_each address of the version that was live when this changed (v2), so
-# Terraform renames them in state instead of recreating them. Safe to delete
-# after the next nightly teardown (the state is empty then).
-moved {
-  from = aws_sagemaker_model.fraud
-  to   = aws_sagemaker_model.fraud["2"]
-}
-
-moved {
-  from = aws_sagemaker_endpoint_configuration.fraud
-  to   = aws_sagemaker_endpoint_configuration.fraud["2"]
-}
