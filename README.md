@@ -150,8 +150,11 @@ promote --version N  ->  PR (approval check + plan guard)  ->  merge + approve d
   replace or destroy the endpoint or the MSK cluster is refused (red on the PR, a hard stop on
   apply) unless a hand-started run sets `allow_replace`.
 - **Auto scaling.** Target tracking keeps endpoint calls per instance near 100 a minute,
-  between 2 and 4 instances; it scales out fast and in slowly. Normal traffic is ~6 calls per
-  instance per minute (each call scores up to 50 transactions).
+  between 2 and 4 instances; it scales out fast and in slowly. It scales in only below 90 per
+  instance, so between 90 and 100 it holds steady. Normal traffic is ~280 calls a minute: a call
+  can carry 50 transactions, but the consumer sends whatever arrived since its last poll -
+  about 2 - so the endpoint settles at 3 instances (~94 each). Batching in the consumer would
+  cut that roughly tenfold, for up to ~200 ms extra delay per transaction (backlog).
 
 **Measured (November 2026):**
 
@@ -160,7 +163,7 @@ promote --version N  ->  PR (approval check + plan guard)  ->  merge + approve d
 | v2 promoted (PR-AUC 0.810 vs v1 0.795 on the same days) | serving v2; `verify` confirms the live package matches git |
 | Deliberately broken model v4 (13 features instead of 14), approved as a labelled test | canary started 17:13:18, `fs-fraud-errors-4xx` in ALARM 17:16:37, all traffic back on v2 by 17:17:09 - no human involved; deploy red: *"rollout of v4 was ROLLED BACK"* |
 | Transactions during the broken canary | 17,874 scored in 30 minutes, 0 lost, 0 scored twice; the consumer stopped once when 4 retries in a row hit the broken fleet and resumed from its last commit (worst delay 218 s) |
-| Load test, ~575 calls/min (real test-day rows) | scaled 2 -> 3 within ~2 min, then to the maximum of 4; 0 errors; p99 latency 421 -> 280 -> 216 ms as instances arrived (p50 ~105 ms throughout); scaled back in one step at a time after the load stopped |
+| Load test, ~575 calls/min (real test-day rows) | normal traffic alone had already taken it from 2 to 3 (~141 calls per instance); the load test took it to the maximum of 4 within ~2 min; 0 errors; p99 latency 421 -> 280 -> 216 ms as instances arrived (p50 ~105 ms throughout); back to 3 at 18:12 once the load stopped, and held there |
 | Training reproducibility | a second pipeline run on the same data, code and seed produced an identical model (PR-AUC 0.8103, recall 0.7245) |
 
 **Check it yourself:** `python scripts/serve/register_broken_model.py`, approve it as a test,
