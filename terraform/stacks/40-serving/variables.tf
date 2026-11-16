@@ -59,6 +59,23 @@ variable "instance_count" {
   }
 }
 
+variable "max_instance_count" {
+  description = "Most instances auto scaling may run. Each extra ml.m5.large costs ~$0.115/hour while scaled out."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.max_instance_count >= var.instance_count
+    error_message = "max_instance_count must be at least instance_count."
+  }
+}
+
+variable "invocations_per_instance_target" {
+  description = "Target tracking value: endpoint calls per instance per minute. Normal traffic is ~6 (each call scores up to 50 transactions); 100 leaves headroom while letting the load test prove scale-out."
+  type        = number
+  default     = 100
+}
+
 variable "capture_sampling_percentage" {
   description = "Share of requests (and their scores) copied to the capture bucket for drift monitoring. 100 = every request."
   type        = number
