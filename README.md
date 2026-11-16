@@ -11,8 +11,8 @@ drift detection, retraining, DR – not model accuracy.
 ## Status
 
 Phase 1 (foundations, data and baseline model) – complete. Phase 2 (streaming and serving) –
-complete. Phase 3 (training pipeline and evaluation gate) – complete. Next: Phase 4 (safe
-deployment and scaling).
+complete. Phase 3 (training pipeline and evaluation gate) – complete. Phase 4 (safe deployment
+and scaling) – complete. Next: Phase 5 (observability and SLOs).
 
 ### Phase 1 – data and baseline model
 
@@ -120,6 +120,87 @@ champion's – it alerts on almost everything – which is why the gate leads wi
 **Check it yourself:** `gh workflow run training-pipeline.yml --ref main -f n_estimators=1 -f max_depth=1 -f expect=rejected`
 (the job passes only if the gate rejects the model).
 
+### Phase 4 – safe deployment and scaling
+
+```
+promote --version N  ->  PR (approval check + plan guard)  ->  merge + approve deploy
+   ->  approval checked again  ->  blue/green CANARY on fs-fraud  ->  verify live model == git
+          green fleet takes 50% for 5 min while 3 alarms watch
+          alarm  -> SageMaker returns all traffic to the last-known-good model by itself
+          no alarm -> green takes 100%, blue kept 2 more minutes, then removed
+```
+
+- **Promotion is a reviewed commit.** `python -m fraudstream.promotion promote --version N`
+  refuses any package that isn't Approved, then rewrites `model.auto.tfvars` with the new
+  version, a comment recording its metrics, lineage and approval note, and the version it
+  replaces as `previous_model_package_arn`. Approval is checked three times: on the PR's
+  plan, right before 40-serving is applied, and by the consumer at run time.
+- **Canary with automatic rollback.** Two instances (a canary may be at most half the new
+  fleet; two also span two AZs). Alarms on 4xx errors (a model that fails on its input is
+  reported as a 4xx `ModelError`), 5xx errors and p99 model latency above 500 ms. They catch
+  a model that is broken or slow; a model that is quietly *wrong* is the evaluation gate's
+  job before deployment and drift monitoring's after it.
+- **Last-known-good stays deployed.** The served version and the previous one each keep a
+  model and an endpoint config (`for_each`), so a rollback always has a config to return to.
+  The oldest is deleted by the next promotion.
+- **Verify the outcome, not the exit code.** After every 40-serving apply,
+  `promotion verify` follows the live endpoint to the model package it really serves and
+  fails the deploy unless it matches git - naming a rollback when that is what happened.
+- **Plan guard.** Every plan is checked (`src/fraudstream/deploy_guard.py`): a plan that would
+  replace or destroy the endpoint or the MSK cluster is refused (red on the PR, a hard stop on
+  apply) unless a hand-started run sets `allow_replace`.
+- **Auto scaling.** Target tracking keeps endpoint calls per instance near 100 a minute,
+  between 2 and 4 instances; it scales out fast and in slowly. Normal traffic is ~6 calls per
+  instance per minute (each call scores up to 50 transactions).
+
+**Measured (November 2026):**
+
+| Check | Result |
+|---|---|
+| v2 promoted (PR-AUC 0.810 vs v1 0.795 on the same days) | serving v2; `verify` confirms the live package matches git |
+| Deliberately broken model v4 (13 features instead of 14), approved as a labelled test | canary started 17:13:18, `fs-fraud-errors-4xx` in ALARM 17:16:37, all traffic back on v2 by 17:17:09 - no human involved; deploy red: *"rollout of v4 was ROLLED BACK"* |
+| Transactions during the broken canary | 17,874 scored in 30 minutes, 0 lost, 0 scored twice; the consumer stopped once when 4 retries in a row hit the broken fleet and resumed from its last commit (worst delay 218 s) |
+| Load test, ~575 calls/min (real test-day rows) | scaled 2 -> 3 within ~2 min, then to the maximum of 4; 0 errors; p99 latency 421 -> 280 -> 216 ms as instances arrived (p50 ~105 ms throughout); scaled back in one step at a time after the load stopped |
+| Training reproducibility | a second pipeline run on the same data, code and seed produced an identical model (PR-AUC 0.8103, recall 0.7245) |
+
+**Check it yourself:** `python scripts/serve/register_broken_model.py`, approve it as a test,
+`promote` it and watch it roll back; `python scripts/ops/load_test.py --per-minute 600 --minutes 15`
+(use `caffeinate -i` on a Mac so it doesn't sleep mid-test).
+
+#### Post-incident reviews
+
+**13 Nov - endpoint replaced by a reviewed plan (~3.5 minutes without scoring).** Adding the
+rollback block (`auto_rollback_configuration`) to the endpoint is a *forces replacement* change
+in the AWS provider: Terraform deleted and recreated the endpoint. The PR's plan said so; review
+missed it. Nothing was lost - transactions waited in Kafka (17,800, 0 lost, worst delay ~4.5 min).
+*Fix:* the plan guard now refuses any plan that replaces the endpoint or MSK.
+
+**14 Nov - v2 promotion, ~81 minutes without scoring, 0 transactions lost.**
+
+| Time (UTC) | What happened |
+|---|---|
+| 12:39 | Deploy starts the v1 -> v2 blue/green update |
+| 12:42 | SageMaker abandons it before the canary: the endpoint's role lacks `cloudwatch:DescribeAlarms` (SageMaker checks the rollback alarms as the endpoint's role). Customers stay on v1 |
+| 12:43 | Terraform reports "Modifications complete" (it only waited for `InService`), the deploy goes green, then Terraform **deletes the v1 config and model the endpoint is still running on** |
+| ~12:45 | The consumer's model lookup fails on the deleted config; it crash-loops (39 restarts). Scoring stops; transactions wait in Kafka. No alert fires |
+| 13:30 | Deploy deadlock: the fix's merge rebuilt the app images, so 35-apps waited for a consumer that couldn't start until 40-serving - which runs after 35-apps - was fixed |
+| 13:55 | The endpoint can't be updated at all: a blue/green update needs the current config, which no longer exists |
+| 14:00 | Recovery: endpoint deleted and recreated on v2 (a create, which the guard allows); consumer drains the backlog |
+
+Impact: ~81 minutes of delayed fraud checks; 64,699 transactions, 0 lost, 0 scored twice.
+
+| Root cause | Fix |
+|---|---|
+| Endpoint role couldn't read the rollback alarms | `DescribeAlarms` added - on `"*"`: scoped to the alarm ARNs it is denied, because SageMaker's check is evaluated against `"*"` (found with the IAM policy simulator on 15 Nov) |
+| Terraform reported an abandoned update as success, then deleted in-use objects | `promotion verify` after every apply; last-known-good model and config kept deployed |
+| Consumer crash-loops when its model lookup fails | Backlog: keep the last known model and retry instead of exiting |
+| Nobody was alerted for 80 minutes | Phase 5: alarms on consumer running count and consumer lag |
+| A broken dependency blocked the deploy of its own fix | Single-stack deploy as the break-glass path |
+| Stale state lock after a cancelled run | `terraform force-unlock`, only once the lock holder is confirmed dead |
+
+Also seen: a 90-minute Terraform timeout while MSK was still creating (AWS took ~1h45m) tainted a
+healthy cluster; it was checked in AWS and untainted rather than replaced.
+
 ## Repository layout
 
 ```
@@ -138,7 +219,8 @@ terraform/
     19-ml/             P  IAM roles (endpoint, ECS tasks, training pipeline), model registry group
     30-streaming/      E  MSK (3 x m7g.large, KRaft, IAM auth, TLS) + ECS cluster
     35-apps/           E  simulator + consumer services
-    40-serving/        E  SageMaker endpoint fs-fraud from the approved model package, data capture
+    40-serving/        E  endpoint fs-fraud: current + last-known-good model, canary deployment,
+                          rollback alarms, auto scaling (2-4), data capture
 .github/workflows/
   terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
@@ -155,7 +237,9 @@ scripts/
   train/package_model.py   model card + SageMaker model.tar.gz -> s3://fs-artefacts-.../
   serve/register_model.py  register a published run in the model registry
   serve/check_endpoint.py  endpoint vs local scores (training-serving parity)
+  serve/register_broken_model.py  a deliberately broken model for the rollback test
   ops/check_scoring.py     scored archive: lost or duplicated transactions, latency
+  ops/load_test.py         real test-day traffic at a fixed rate, to prove auto scaling
 src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   generator/           synthetic cardholders, shops, transactions and fraud, from one seed
   features/            FeatureBuilder: the one place features are calculated
@@ -167,8 +251,11 @@ src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   storage.py           immutable dataset versions: Parquet + manifest, local and S3
   training/            time split, XGBoost training, evaluation at an alert budget
   pipeline/            pipeline steps, gate, definition and launcher (python -m fraudstream.pipeline)
+  promotion.py         promote / check / verify a model version (python -m fraudstream.promotion)
+  deploy_guard.py      refuses plans that would replace the endpoint or MSK
 tests/                 pytest: generator, features, leakage, skew, reproducibility, registry,
-                       endpoint format, consumer (scoring, checkpoint order, hand-overs), audit
+                       endpoint format, consumer (scoring, checkpoint order, hand-overs), audit,
+                       pipeline definition and gate, promotion, plan guard
 pyproject.toml         package definition, dependencies, pytest and ruff settings
 ```
 
