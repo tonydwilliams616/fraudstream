@@ -53,6 +53,7 @@ on:
           - 15-nat
           - 18-data
           - 19-ml
+          - 20-observability
           - 30-streaming
           - 35-apps
           - 40-serving
@@ -72,6 +73,7 @@ env:
   TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ vars.AWS_REGION }}
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+  TF_VAR_grafana_admin_user_ids: ${{ vars.GRAFANA_ADMIN_USER_IDS }}
 
 jobs:
   # ---------------------------------------------------------------------------
