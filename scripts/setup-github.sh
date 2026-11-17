@@ -6,7 +6,9 @@
 # What it sets on tonydwilliams616/fraudstream:
 #   1. Repository VARIABLES  AWS_REGION, AWS_PLAN_ROLE_ARN, AWS_APPLY_ROLE_ARN,
 #                            AWS_ECR_PUSH_ROLE_ARN, AWS_PIPELINE_ROLE_ARN
-#                            (read from bootstrap outputs)
+#                            (read from bootstrap outputs);
+#                            GRAFANA_ADMIN_USER_IDS (prompted; IAM Identity
+#                            Center user IDs as a JSON list, for 20-observability)
 #   2. Repository SECRET     ALERT_EMAIL (prompted; becomes TF_VAR_alert_email)
 #   3. ENVIRONMENTS          production - you must approve every apply;
 #                                         deployable from main only
@@ -47,6 +49,10 @@ gh variable set AWS_PLAN_ROLE_ARN     --repo "$REPO" --body "$PLAN_ROLE"
 gh variable set AWS_APPLY_ROLE_ARN    --repo "$REPO" --body "$APPLY_ROLE"
 gh variable set AWS_ECR_PUSH_ROLE_ARN --repo "$REPO" --body "$ECR_ROLE"
 gh variable set AWS_PIPELINE_ROLE_ARN --repo "$REPO" --body "$PIPELINE_ROLE"
+if ! gh variable list --repo "$REPO" | grep -q '^GRAFANA_ADMIN_USER_IDS'; then
+  read -r -p "IAM Identity Center user ID of the Grafana admin: " grafana_id
+  gh variable set GRAFANA_ADMIN_USER_IDS --repo "$REPO" --body "[\"$grafana_id\"]"
+fi
 
 echo "==> 2. Secret ALERT_EMAIL (receives budget, anomaly and ops alerts)"
 if gh secret list --repo "$REPO" | grep -q '^ALERT_EMAIL'; then
