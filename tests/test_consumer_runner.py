@@ -7,7 +7,9 @@ What: a micro-batch produces one scored record per transaction and an alert
       checkpoints first, except after a failure; unreadable messages are
       skipped; a promoted model is picked up and a model that breaks the
       feature contract stops scoring; the program waits for the endpoint at
-      start-up; MSK consumer settings commit manually. Kafka and AWS are faked.
+      start-up; MSK consumer settings commit manually; the Prometheus metrics
+      count messages, scores and alerts by model, and record checkpoints and
+      model changes. Kafka and AWS are faked.
 Why:  the order "confirm, archive, THEN commit" is what makes the consumer lose
       nothing when it crashes. These tests pin that order down.
 """
@@ -21,6 +23,7 @@ import pytest
 
 from fraudstream.consumer.__main__ import Settings, wait_for_model
 from fraudstream.consumer.archive import ArchiveBuffer
+from fraudstream.consumer.metrics import ConsumerMetrics
 from fraudstream.consumer.model import EndpointNotReady, ModelContractError, ModelInfo
 from fraudstream.consumer.runner import DeliveryError, Runner
 from fraudstream.consumer.scoring import Scorer
@@ -240,3 +243,52 @@ def test_consumer_commits_manually_and_moves_partitions_gently():
     assert config["enable.auto.commit"] is False
     assert config["partition.assignment.strategy"] == "cooperative-sticky"
     assert config["group.id"] == "fs-scorer" and config["sasl.mechanisms"] == "OAUTHBEARER"
+
+
+# --- metrics ------------------------------------------------------------------
+def test_metrics_count_messages_scores_and_alerts_by_model():
+    r, _, _ = runner(
+        [[Msg(b"not json"), Msg(tx(0, amount=5)), Msg(tx(1, card="c2", amount=950), offset=1)]]
+    )
+    r.step()
+    m = r.metrics.registry.get_sample_value
+    assert m("fraudstream_transactions_consumed_total") == 3
+    assert m("fraudstream_bad_messages_total") == 1
+    assert m("fraudstream_transactions_scored_total", {"model_version": "1"}) == 2
+    assert m("fraudstream_alerts_total", {"model_version": "1"}) == 1
+    assert m("fraudstream_batch_size_count") == 1 and m("fraudstream_batch_size_sum") == 2
+    assert m("fraudstream_score_count") == 2
+    assert m("fraudstream_end_to_end_latency_seconds_count") == 2
+
+
+def test_latency_without_a_kafka_timestamp_is_not_observed():
+    r, _, _ = runner([[Msg(tx(0), ts=(0, 0))]])
+    r.step()
+    m = r.metrics.registry.get_sample_value
+    assert m("fraudstream_transactions_scored_total", {"model_version": "1"}) == 1
+    assert m("fraudstream_end_to_end_latency_seconds_count") == 0
+
+
+def test_checkpoint_and_model_change_show_in_metrics():
+    v2 = replace(MODEL, version=2, threshold=0.5)
+    r, _, clock = runner([[Msg(tx(0))], []], resolve=lambda: v2)
+    m = r.metrics.registry.get_sample_value
+    assert m("fraudstream_last_checkpoint_timestamp_seconds") == 0  # never committed
+    r.step()
+    r.checkpoint()
+    assert m("fraudstream_last_checkpoint_timestamp_seconds") > 0
+    r.metrics.set_model(1, 0.9)
+    clock[0] = 301
+    r.step()  # picks up v2
+    assert m("fraudstream_model_info", {"model_version": "2", "threshold": "0.5"}) == 1
+    assert m("fraudstream_model_info", {"model_version": "1", "threshold": "0.9"}) is None
+
+
+def test_each_metrics_object_has_its_own_registry():
+    a, b = ConsumerMetrics(), ConsumerMetrics()  # same names, yet no "Duplicated timeseries"
+    a.consumed.inc()
+    assert b.registry.get_sample_value("fraudstream_transactions_consumed_total") == 0
+
+
+def test_metrics_port_defaults_to_8000():
+    assert Settings.from_env({"BOOTSTRAP_SERVERS": "b-1:9098"}).metrics_port == 8000

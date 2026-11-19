@@ -17,10 +17,14 @@ Settings (environment variables):
   BATCH_WAIT_MS          longest wait to fill a batch, default 200
   ARCHIVE_SECONDS        how often to write an archive file and commit, default 60
   MODEL_REFRESH_SECONDS  how often to re-check which model is deployed, default 300
+  METRICS_PORT           port of the Prometheus /metrics page, default 8000
   AWS_REGION             default us-east-1
 Start-up order: on a rebuild this task can start before the endpoint exists
   (35-apps is applied before 40-serving). It waits, logging why, instead of
   crashing; transactions wait safely in Kafka meanwhile.
+Metrics: the /metrics page starts first, so the collector can tell "running
+  but waiting for the endpoint" (page up, nothing scored) from "not running"
+  (no page at all).
 Stopping: on SIGTERM it finishes the batch in hand, writes the archive,
   commits and leaves the group cleanly. After an error it exits WITHOUT
   committing, so the next task re-reads anything not yet safely written.
@@ -57,6 +61,7 @@ class Settings:
     archive_seconds: float
     model_refresh_seconds: float
     region: str
+    metrics_port: int
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> Settings:
@@ -78,6 +83,7 @@ class Settings:
             archive_seconds=float(env.get("ARCHIVE_SECONDS", "60")),
             model_refresh_seconds=float(env.get("MODEL_REFRESH_SECONDS", "300")),
             region=env.get("AWS_REGION", "us-east-1"),
+            metrics_port=int(env.get("METRICS_PORT", "8000")),
         )
 
 
@@ -106,6 +112,14 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, on_sigterm)
 
+    from prometheus_client import REGISTRY, start_http_server
+
+    from fraudstream.consumer.metrics import ConsumerMetrics
+
+    metrics = ConsumerMetrics(REGISTRY)  # the global registry also has process metrics
+    start_http_server(settings.metrics_port, registry=REGISTRY)  # a background thread
+    log.info("metrics on :%s/metrics", settings.metrics_port)
+
     import boto3
     from confluent_kafka import Consumer, Producer
 
@@ -127,6 +141,7 @@ def main() -> int:
     if model is None:
         return 0
     check_contract(model)
+    metrics.set_model(model.version, model.threshold)
     log.info(
         "scoring with model v%s (%s), threshold %s", model.version, model.run_id, model.threshold
     )
@@ -153,7 +168,7 @@ def main() -> int:
     runner = Runner(
         consumer,
         producer,
-        Scorer(builder, runtime, settings.endpoint, model),
+        Scorer(builder, runtime, settings.endpoint, model, metrics=metrics),
         archive,
         settings.scored_topic,
         settings.alerts_topic,
@@ -161,6 +176,7 @@ def main() -> int:
         batch_size=settings.batch_size,
         batch_wait=settings.batch_wait_ms / 1000,
         refresh_s=settings.model_refresh_seconds,
+        metrics=metrics,
     )
     consumer.subscribe(
         [settings.input_topic], on_assign=runner.on_assign, on_revoke=runner.on_revoke

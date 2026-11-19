@@ -4,7 +4,8 @@ What: the deployed model is found by following endpoint -> config -> model ->
       package, and refused if it isn't Approved or expects other features; a
       micro-batch is scored with one endpoint call, in order, with the right
       alerts, model version and latency; a failing endpoint is retried WITHOUT
-      rebuilding features (which would double-count card history); messages in
+      rebuilding features (which would double-count card history), and every
+      attempt is timed and every failure counted for Prometheus; messages in
       an unknown format are skipped; scored records are archived as gzipped
       JSON lines in dt=/hour= folders when big or old enough. AWS is faked.
 Why:  these are the decisions that make a score trustworthy - right model,
@@ -155,6 +156,14 @@ def test_endpoint_failures_are_retried_without_double_counting_history():
     nxt = s.score_batch([Incoming(message(1), 0, 1, None)])
     assert runtime.calls == 4  # 2 failures + 1 success, then 1
     assert nxt[0]["features"]["card_txn_count"] == 1  # the first purchase counted once
+
+
+def test_endpoint_calls_are_timed_and_failures_counted():
+    s = scorer(FakeRuntime(fail_first=2))
+    s.score_batch([Incoming(message(0), 0, 0, None)])
+    m = s.metrics.registry.get_sample_value
+    assert m("fraudstream_endpoint_call_seconds_count") == 3  # every attempt, failed or not
+    assert m("fraudstream_endpoint_errors_total") == 2
 
 
 def test_endpoint_that_keeps_failing_raises():

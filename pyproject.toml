@@ -43,6 +43,7 @@ dev = [
   # Pinned so the Mac and CI run exactly the same lint rules (newer ruff adds rules).
   "ruff==0.17.4",  # checks code style and common mistakes
   "boto3>=1.35",  # AWS SDK: uploads dataset versions to S3 (needs 1.35+ for conditional writes)
+  "prometheus-client>=0.21",  # the consumer's metrics are imported (and tested) without Kafka
 ]
 # What the streaming apps (simulator, consumer) need on top of the core package.
 # Installed in their container images; tests don't need it.
@@ -50,6 +51,7 @@ stream = [
   "confluent-kafka>=2.6",  # Kafka client (librdkafka): producer, consumer, admin
   "aws-msk-iam-sasl-signer-python>=1.0",  # signs MSK IAM tokens with the task's role
   "boto3>=1.35",  # downloads the dataset's reference tables from S3
+  "prometheus-client>=0.21",  # the consumer's /metrics page for Prometheus
 ]
 # What the training pipeline's own image needs (prepare, evaluate, register steps):
 # the training libraries plus the AWS SDK for the registry and S3.
