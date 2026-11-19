@@ -15,6 +15,13 @@
 #     Both are in one consumer group, so Kafka hands partitions over between
 #     them (the old one checkpoints first) - no gap in scoring. It can run up
 #     to 6 tasks, one per partition; a 7th would sit idle.
+# Metrics: the consumer serves Prometheus metrics on localhost:8000. An ADOT
+#   (AWS Distro for OpenTelemetry) collector runs beside it in the same task,
+#   reads that page every 15 s and remote-writes the samples to the Prometheus
+#   workspace in 20-observability, signed with the consumer's task role (which
+#   20-observability allows to write to that one workspace). Each task's samples
+#   carry a `task` label (its hostname), so two tasks overlapping during a
+#   deployment don't overwrite each other's series.
 # Start-up order: 35-apps is applied before 40-serving, so on a rebuild the
 #   consumer can start before the endpoint exists. It waits (logging why) rather
 #   than crashing, so the service is stable and the apply carries on.
@@ -23,7 +30,8 @@
 # Known behaviour: the simulator's SEED defaults to today's date, so a task
 #   restarted on the same day replays the same transactions (same IDs). The
 #   consumer is at-least-once anyway; records carry transaction_id for de-dup.
-# Cost: 2 x (0.5 vCPU + 1 GiB ARM Fargate) ~$0.04/hour, plus logs.
+# Cost: simulator 0.5 vCPU + 1 GiB, consumer 0.5 vCPU + 2 GiB (incl. collector),
+#   ARM Fargate ~$0.04/hour together, plus logs and Prometheus samples (pennies).
 # -----------------------------------------------------------------------------
 data "terraform_remote_state" "data" {
   backend = "s3"
@@ -55,6 +63,16 @@ data "terraform_remote_state" "ml" {
   }
 }
 
+data "terraform_remote_state" "observability" {
+  backend = "s3"
+
+  config = {
+    bucket = "fs-tfstate-831547420318"
+    key    = "20-observability/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
 data "terraform_remote_state" "streaming" {
   backend = "s3"
 
@@ -80,6 +98,50 @@ locals {
   ml        = data.terraform_remote_state.ml.outputs
   streaming = data.terraform_remote_state.streaming.outputs
   buckets   = data.terraform_remote_state.data.outputs.bucket_names
+  metrics   = data.terraform_remote_state.observability.outputs
+}
+
+# The collector's configuration (OpenTelemetry Collector YAML, passed in an
+# environment variable). "$${env:HOSTNAME}" reaches the collector as
+# ${env:HOSTNAME}, which it fills in with the task's hostname at start-up.
+locals {
+  collector_config = yamlencode({
+    extensions = {
+      sigv4auth = { region = var.aws_region, service = "aps" } # sign with the task role
+    }
+    receivers = {
+      prometheus = {
+        config = {
+          global = { scrape_interval = "15s" }
+          scrape_configs = [{
+            job_name = "fraudstream-consumer"
+            static_configs = [{
+              targets = ["localhost:${var.consumer_metrics_port}"]
+              labels  = { task = "$${env:HOSTNAME}" }
+            }]
+          }]
+        }
+      }
+    }
+    processors = { batch = {} } # send in batches, not one request per sample
+    exporters = {
+      prometheusremotewrite = {
+        endpoint    = local.metrics.prometheus_remote_write_url
+        auth        = { authenticator = "sigv4auth" }
+        target_info = { enabled = false } # no extra target_info series
+      }
+    }
+    service = {
+      extensions = ["sigv4auth"]
+      pipelines = {
+        metrics = {
+          receivers  = ["prometheus"]
+          processors = ["batch"]
+          exporters  = ["prometheusremotewrite"]
+        }
+      }
+    }
+  })
 }
 
 locals {
@@ -160,7 +222,14 @@ module "consumer" {
     DATASET_URI       = local.dataset_uri
     ARCHIVE_BUCKET    = local.buckets["scored"]
     AWS_REGION        = var.aws_region
+    METRICS_PORT      = tostring(var.consumer_metrics_port)
   }
+
+  sidecars = [{
+    name        = "metrics-collector"
+    image       = var.collector_image
+    environment = { AOT_CONFIG_CONTENT = local.collector_config }
+  }]
 }
 
 # The simulator's resources used to be defined directly in this stack. These
