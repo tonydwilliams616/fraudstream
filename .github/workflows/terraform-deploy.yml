@@ -54,6 +54,7 @@ on:
           - 18-data
           - 19-ml
           - 20-observability
+          - 25-dashboards
           - 30-streaming
           - 35-apps
           - 40-serving
