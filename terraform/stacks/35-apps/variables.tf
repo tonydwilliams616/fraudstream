@@ -88,7 +88,17 @@ variable "consumer_cpu" {
 variable "consumer_memory" {
   description = "Consumer task memory in MiB: reference tables, every card's recent history, up to a minute of buffered records, plus ~100 MiB for the metrics collector beside it."
   type        = number
-  default     = 1536
+  default     = 2048
+
+  # Fargate only accepts set CPU/memory pairs, and checks them when the task
+  # definition is created - after the plan. Catch a bad pair at plan time.
+  validation {
+    condition = contains(
+      lookup({ 256 = [512, 1024, 2048], 512 = [1024, 2048, 3072, 4096], 1024 = [2048, 3072, 4096, 5120, 6144, 7168, 8192] }, var.consumer_cpu, []),
+      var.consumer_memory
+    )
+    error_message = "Not a Fargate CPU/memory pair: at 512 CPU, memory must be 1024, 2048, 3072 or 4096 MiB (see the ECS task size table)."
+  }
 }
 
 variable "consumer_metrics_port" {

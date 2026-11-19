@@ -30,7 +30,7 @@
 # Known behaviour: the simulator's SEED defaults to today's date, so a task
 #   restarted on the same day replays the same transactions (same IDs). The
 #   consumer is at-least-once anyway; records carry transaction_id for de-dup.
-# Cost: simulator 0.5 vCPU + 1 GiB, consumer 0.5 vCPU + 1.5 GiB (incl. collector),
+# Cost: simulator 0.5 vCPU + 1 GiB, consumer 0.5 vCPU + 2 GiB (incl. collector),
 #   ARM Fargate ~$0.04/hour together, plus logs and Prometheus samples (pennies).
 # -----------------------------------------------------------------------------
 data "terraform_remote_state" "data" {
