@@ -92,3 +92,13 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "sidecars" {
+  description = "Extra, non-essential containers in the same task (e.g. a metrics collector): name, image (with a version tag) and environment."
+  type = list(object({
+    name        = string
+    image       = string
+    environment = optional(map(string), {})
+  }))
+  default = []
+}

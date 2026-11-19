@@ -19,6 +19,11 @@
 #   - The deployment circuit breaker rolls back if new tasks keep failing, and
 #     the apply waits until the service is stable, so a broken image fails the
 #     pipeline instead of looking like a success.
+# Sidecars (optional): extra containers in the same task, e.g. the consumer's
+#   metrics collector. They share the task's network (so they can reach the
+#   app on localhost), its roles and its log group. They are NOT essential: if
+#   a sidecar dies the app keeps running - losing metrics must never stop
+#   scoring. Their images come from public registries, pinned by version tag.
 # -----------------------------------------------------------------------------
 terraform {
   required_version = ">= 1.10"
@@ -76,7 +81,7 @@ resource "aws_ecs_task_definition" "this" {
     name = "tmp"
   }
 
-  container_definitions = jsonencode([
+  container_definitions = jsonencode(concat([
     {
       name                   = var.app
       image                  = local.image
@@ -103,7 +108,31 @@ resource "aws_ecs_task_definition" "this" {
         }
       }
     }
-  ])
+    ], [
+    for s in var.sidecars : {
+      name                   = s.name
+      image                  = s.image
+      essential              = false
+      readonlyRootFilesystem = true
+
+      mountPoints = [
+        { sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }
+      ]
+
+      environment = [for k, v in s.environment : { name = k, value = v }]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.this.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = s.name
+          mode                  = "non-blocking"
+          max-buffer-size       = "5m"
+        }
+      }
+    }
+  ]))
 }
 
 # --- service --------------------------------------------------------------------
