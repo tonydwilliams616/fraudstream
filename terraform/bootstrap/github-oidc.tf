@@ -101,6 +101,26 @@ resource "aws_iam_role_policy" "github_plan_state" {
   policy = data.aws_iam_policy_document.github_plan_state.json
 }
 
+# Reads that AWS's ReadOnlyAccess policy doesn't (yet) include, but plans need:
+# refreshing 20-observability's Grafana service account and its token lists
+# them (names and expiry dates only - a token's secret is never readable).
+data "aws_iam_policy_document" "github_plan_extra_reads" {
+  statement {
+    sid = "ListGrafanaServiceAccounts"
+    actions = [
+      "grafana:ListWorkspaceServiceAccounts",
+      "grafana:ListWorkspaceServiceAccountTokens",
+    ]
+    resources = ["arn:aws:grafana:*:${data.aws_caller_identity.current.account_id}:/workspaces/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_plan_extra_reads" {
+  name   = "extra-reads"
+  role   = aws_iam_role.github_plan.id
+  policy = data.aws_iam_policy_document.github_plan_extra_reads.json
+}
+
 # -----------------------------------------------------------------------------
 # APPLY role - assumable only from the "production" and "teardown" GitHub
 # environments; production requires manual approval before any apply runs.
