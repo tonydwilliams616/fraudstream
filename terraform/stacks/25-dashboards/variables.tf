@@ -13,9 +13,9 @@ variable "aws_account_id" {
   default     = "831547420318"
 }
 
-# How each data source signs its AWS requests. Both should be Managed Grafana's
-# "workspace IAM role" setting; the values are copied from data sources created
-# once in the UI (Apps > AWS Data Sources) and read back from /api/datasources.
+# How each data source signs its AWS requests: Managed Grafana's "workspace IAM
+# role" setting. Confirmed 19 Nov 2026 from data sources created by the AWS Data
+# Sources app and read back from /api/datasources.
 variable "prometheus_auth_type" {
   description = "sigV4AuthType for the Managed Prometheus data source (workspace IAM role)."
   type        = string

@@ -6,9 +6,10 @@
 #       dashboards in dashboards/*.json.
 # Data sources: both sign their AWS requests with the Grafana workspace's own
 #       IAM role (fs-grafana, 20-observability), which may query our one
-#       Prometheus workspace and read CloudWatch. Grafana 12 removed SigV4 from
-#       its core Prometheus data source, so Managed Prometheus uses the
-#       "Amazon Managed Service for Prometheus" plugin.
+#       Prometheus workspace and read CloudWatch. Their settings match what
+#       Managed Grafana's own "AWS Data Sources" app creates (checked against
+#       /api/datasources): the built-in Prometheus type with SigV4, and
+#       ec2_iam_role meaning "the workspace's IAM role".
 # Dashboards: each JSON file refers to the data source by its fixed uid
 #       (fs-prometheus), so a rebuilt data source keeps every panel working.
 #       Change a dashboard in the UI to try something, then export its JSON
@@ -24,7 +25,7 @@ resource "grafana_folder" "fraudstream" {
 }
 
 resource "grafana_data_source" "prometheus" {
-  type       = "grafana-amazonprometheus-datasource"
+  type       = "prometheus"
   name       = "fraudstream-prometheus"
   uid        = "fs-prometheus"
   url        = trimsuffix(local.obs.prometheus_query_url, "/")

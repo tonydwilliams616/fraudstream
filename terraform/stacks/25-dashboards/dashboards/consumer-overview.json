@@ -27,13 +27,13 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_transactions_scored_total[5m]))",
@@ -72,13 +72,13 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_alerts_total[15m])) / sum(rate(fraudstream_transactions_scored_total[15m]))",
@@ -135,13 +135,13 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "max by (model_version) (fraudstream_model_info)",
@@ -180,13 +180,13 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "time() - max(fraudstream_last_checkpoint_timestamp_seconds)",
@@ -242,13 +242,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_transactions_consumed_total[5m]))",
@@ -257,7 +257,7 @@
         },
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_transactions_scored_total[5m]))",
@@ -266,7 +266,7 @@
         },
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_bad_messages_total[5m]))",
@@ -293,13 +293,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "histogram_quantile(0.5, sum by (le) (rate(fraudstream_end_to_end_latency_seconds_bucket[5m])))",
@@ -308,7 +308,7 @@
         },
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(fraudstream_end_to_end_latency_seconds_bucket[5m])))",
@@ -335,13 +335,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "histogram_quantile(0.5, sum by (le) (rate(fraudstream_endpoint_call_seconds_bucket[5m])))",
@@ -350,7 +350,7 @@
         },
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(fraudstream_endpoint_call_seconds_bucket[5m])))",
@@ -377,13 +377,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_endpoint_errors_total[5m]))",
@@ -410,13 +410,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum(rate(fraudstream_batch_size_sum[5m])) / sum(rate(fraudstream_batch_size_count[5m]))",
@@ -443,13 +443,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum by (model_version) (rate(fraudstream_alerts_total[5m])) * 60",
@@ -476,13 +476,13 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana-amazonprometheus-datasource",
+        "type": "prometheus",
         "uid": "fs-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-amazonprometheus-datasource",
+            "type": "prometheus",
             "uid": "fs-prometheus"
           },
           "expr": "sum by (le) (increase(fraudstream_score_bucket[1h]))",
