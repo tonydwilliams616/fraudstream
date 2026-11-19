@@ -86,7 +86,19 @@ variable "consumer_cpu" {
 }
 
 variable "consumer_memory" {
-  description = "Consumer task memory in MiB: reference tables, every card's recent history and up to a minute of buffered records."
+  description = "Consumer task memory in MiB: reference tables, every card's recent history, up to a minute of buffered records, plus ~100 MiB for the metrics collector beside it."
   type        = number
-  default     = 1024
+  default     = 1536
+}
+
+variable "consumer_metrics_port" {
+  description = "Port of the consumer's Prometheus /metrics page (inside the task only)."
+  type        = number
+  default     = 8000
+}
+
+variable "collector_image" {
+  description = "ADOT collector image for the consumer's metrics sidecar, pinned to a version tag."
+  type        = string
+  default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
 }
