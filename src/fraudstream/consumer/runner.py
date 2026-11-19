@@ -22,6 +22,9 @@ Partition hand-overs: before partitions are taken away (another consumer
 Model changes: every refresh_s the deployed model is looked up again. A
   promotion is picked up with its own threshold; a model that breaks the
   feature contract stops scoring (it raises) rather than scoring wrongly.
+Metrics: each batch and checkpoint also updates ConsumerMetrics (pass the same
+  object the Scorer uses), which the program serves for Prometheus. The
+  `stats` dict stays for the once-a-minute log line.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ import json
 import logging
 import time
 
+from fraudstream.consumer.metrics import ConsumerMetrics
 from fraudstream.consumer.model import EndpointNotReady, check_contract
 from fraudstream.consumer.scoring import Incoming, to_alert
 
@@ -56,6 +60,7 @@ class Runner:
         batch_wait: float = 0.2,
         refresh_s: float = 300,
         clock=time.monotonic,
+        metrics: ConsumerMetrics | None = None,
     ):
         self.consumer = consumer
         self.producer = producer
@@ -73,6 +78,7 @@ class Runner:
         self.max_latency_ms = 0  # worst produce-to-scored time since the last stats log
         self.failed_deliveries = 0
         self.healthy = True  # set False after an error: then NEVER commit (see on_revoke)
+        self.metrics = ConsumerMetrics() if metrics is None else metrics
 
     # --- Kafka callbacks ----------------------------------------------------------
     def on_assign(self, _consumer, partitions):
@@ -104,10 +110,12 @@ class Runner:
                 log.warning("kafka: %s", msg.error())  # e.g. topic not created yet
                 continue
             self.stats["consumed"] += 1
+            self.metrics.consumed.inc()
             try:
                 value = json.loads(msg.value())
             except (TypeError, ValueError):
                 self.stats["bad_messages"] += 1
+                self.metrics.bad_messages.inc()
                 log.warning("skipping unreadable message at %s/%s", msg.partition(), msg.offset())
                 continue
             ts_type, ts = msg.timestamp()
@@ -131,6 +139,7 @@ class Runner:
         self.producer.poll(0)
         self.archive.add(records)
         self.stats["scored"] += len(records)
+        self.metrics.record_batch(records)
         latencies = [r["latency_ms"] for r in records if r["latency_ms"] is not None]
         if latencies:
             self.max_latency_ms = max(self.max_latency_ms, *latencies)
@@ -152,6 +161,7 @@ class Runner:
         except Exception as err:
             if "NO_OFFSET" not in str(err):  # nothing new to commit is fine
                 raise
+        self.metrics.last_checkpoint.set_to_current_time()
 
     def _maybe_refresh_model(self) -> None:
         if self.clock() - self._last_refresh < self.refresh_s:
@@ -169,3 +179,4 @@ class Runner:
                 model.version, self.scorer.model.version, model.threshold,
             )  # fmt: skip
             self.scorer.model = model
+            self.metrics.set_model(model.version, model.threshold)

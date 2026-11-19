@@ -19,6 +19,9 @@ Why these choices:
   - Latency is measured from when the simulator PRODUCED the message (Kafka's
     timestamp) to when its score is ready - real elapsed time. The event
     timestamp in the message is simulated time and runs faster than real life.
+  - Every endpoint call is timed and every failed call counted for Prometheus
+    (fraudstream.consumer.metrics), so retries that hide a struggling endpoint
+    still show up on the dashboard.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from fraudstream.consumer.metrics import ConsumerMetrics
 from fraudstream.consumer.model import ModelInfo
 from fraudstream.endpoint import score
 from fraudstream.features import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
@@ -73,6 +77,7 @@ class Scorer:
         retries: int = 4,
         sleep=time.sleep,
         now_ms=lambda: int(time.time() * 1000),
+        metrics: ConsumerMetrics | None = None,
     ):
         self.builder = builder
         self.runtime = runtime
@@ -82,6 +87,7 @@ class Scorer:
         self.sleep = sleep
         self.now_ms = now_ms
         self.skipped = 0  # messages in a format this code doesn't understand
+        self.metrics = ConsumerMetrics() if metrics is None else metrics
 
     def score_batch(self, batch: list[Incoming]) -> list[dict]:
         """Scored records for a batch, in the same order. Raises if the endpoint keeps failing."""
@@ -127,10 +133,13 @@ class Scorer:
         delay = 0.5
         for attempt in range(1, self.retries + 2):
             try:
-                return score(self.runtime, self.endpoint, rows)
+                with self.metrics.endpoint_call.time():  # observed even if the call fails
+                    return score(self.runtime, self.endpoint, rows)
             except ValueError:
+                self.metrics.endpoint_errors.inc()
                 raise  # a malformed reply won't fix itself
             except Exception as err:
+                self.metrics.endpoint_errors.inc()
                 if attempt > self.retries:
                     raise
                 log.warning("endpoint call failed (attempt %s): %s - retrying", attempt, err)
