@@ -2,7 +2,9 @@
 # terraform-ci.yml - static checks on every pull request and push to main.
 #
 # What: terraform fmt, validate (every directory with .tf files), tflint and a
-#       Checkov security scan - no AWS credentials needed for any of it.
+#       Checkov security scan - no AWS credentials needed for any of it. Also
+#       checks and unit-tests the Prometheus alert rules (promtool), which
+#       20-observability uploads.
 # Why:  catches formatting, type, lint and security problems before a plan or
 #       apply ever runs. Checkov is blocking from day one: a deliberate
 #       exception is written next to the resource as
@@ -113,11 +115,29 @@ jobs:
       - name: Scan Terraform
         run: checkov -d terraform --framework terraform --compact --quiet
 
+  alert-rules:
+    name: alert rules (promtool)
+    runs-on: ubuntu-24.04
+    env:
+      PROMETHEUS_VERSION: "3.5.0" # long-term-support release
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install promtool
+        run: |
+          curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz --strip-components=1 -C "$RUNNER_TEMP" "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/promtool" --version
+      - name: Check rule syntax
+        run: promtool check rules terraform/stacks/20-observability/prometheus/rules.yml
+      - name: Unit-test the alerts
+        run: promtool test rules terraform/stacks/20-observability/prometheus/rules.test.yml
+
   # Single required check for branch protection - passes only if every job above did.
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [fmt, discover, validate, tflint, checkov]
+    needs: [fmt, discover, validate, tflint, checkov, alert-rules]
     runs-on: ubuntu-24.04
     steps:
       - name: Check results
