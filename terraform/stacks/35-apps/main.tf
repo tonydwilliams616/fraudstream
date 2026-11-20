@@ -125,7 +125,7 @@ locals {
     }
     processors = { batch = {} } # send in batches, not one request per sample
     exporters = {
-      prometheusremotewrite = {
+      prometheus_remote_write = {
         endpoint    = local.metrics.prometheus_remote_write_url
         auth        = { authenticator = "sigv4auth" }
         target_info = { enabled = false } # no extra target_info series
@@ -137,7 +137,7 @@ locals {
         metrics = {
           receivers  = ["prometheus"]
           processors = ["batch"]
-          exporters  = ["prometheusremotewrite"]
+          exporters  = ["prometheus_remote_write"]
         }
       }
     }

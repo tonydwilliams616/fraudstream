@@ -1,0 +1,420 @@
+{
+  "uid": "fs-endpoint",
+  "title": "fraudstream - endpoint and lag",
+  "description": "The SageMaker endpoint (scaling, latency, errors, CPU) and Kafka consumer lag, from CloudWatch. Managed by Terraform (25-dashboards) - changes made in the UI are overwritten on the next apply.",
+  "tags": [
+    "fraudstream",
+    "terraform"
+  ],
+  "timezone": "utc",
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Calls per instance (scaling metric)",
+      "description": "SageMakerVariantInvocationsPerInstance - what target tracking watches. Above the dashed line (100/min) it adds instances; below 90 for ~15 min it removes one.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "InvocationsPerInstance",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "calls per instance per minute"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Instances serving",
+      "description": "Worked out as total calls / calls per instance (SageMaker doesn't publish an instance count). Min 2, max 4.",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "Invocations",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "",
+          "hide": true
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "InvocationsPerInstance",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "",
+          "hide": true
+        },
+        {
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "refId": "C",
+          "type": "math",
+          "expression": "$A / $B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Model latency",
+      "description": "Time inside the model container per call (p50, p99). SageMaker reports it in microseconds.",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "ModelLatency",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "p50",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "p50"
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "ModelLatency",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "p99",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "\u00b5s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Endpoint errors",
+      "description": "4xx (e.g. a model that rejects its input - what rolled back the broken v4) and 5xx per minute. The canary alarms watch these.",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "Invocation4XXErrors",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "4xx"
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/SageMaker",
+          "metricName": "Invocation5XXErrors",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CPU per instance",
+      "description": "Average CPU across the endpoint's instances (100% = one full core, so it can exceed 100).",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "/aws/sagemaker/Endpoints",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "EndpointName": "fs-fraud",
+            "VariantName": "AllTraffic"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "CPU"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Consumer lag (MSK)",
+      "description": "Kafka's own estimate of how far behind the consumer group is (seconds to drain the worst partition). The fs-consumer-lag alarm emails at over 300 s for 15 minutes.",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "fs-cloudwatch"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "fs-cloudwatch"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "default",
+          "namespace": "AWS/Kafka",
+          "metricName": "EstimatedMaxTimeLag",
+          "dimensions": {
+            "Cluster Name": "fs-msk",
+            "Consumer Group": "fs-scorer",
+            "Topic": "transactions"
+          },
+          "statistic": "Maximum",
+          "period": "300",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "lag"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}
