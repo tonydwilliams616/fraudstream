@@ -353,8 +353,8 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Consumer lag (MSK)",
-      "description": "Kafka's own estimate of how far behind the consumer group is (seconds to drain the worst partition). The fs-consumer-lag alarm emails at over 300 s for 15 minutes.",
+      "title": "Consumer lag (MSK, unread messages)",
+      "description": "Transactions waiting unread in Kafka for the consumer group, all partitions (SumOffsetLag). Healthy is a few hundred (the consumer commits once a minute). The fs-consumer-lag alarm emails at over 3,000 (~5 minutes of traffic) for 10 minutes.",
       "gridPos": {
         "x": 12,
         "y": 16,
@@ -377,7 +377,7 @@
           "metricEditorMode": 0,
           "region": "default",
           "namespace": "AWS/Kafka",
-          "metricName": "EstimatedMaxTimeLag",
+          "metricName": "SumOffsetLag",
           "dimensions": {
             "Cluster Name": "fs-msk",
             "Consumer Group": "fs-scorer",
@@ -388,12 +388,12 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "lag"
+          "label": "unread messages"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "short",
           "custom": {
             "thresholdsStyle": {
               "mode": "dashed"
@@ -408,7 +408,7 @@
               },
               {
                 "color": "red",
-                "value": 300
+                "value": 3000
               }
             ]
           }
