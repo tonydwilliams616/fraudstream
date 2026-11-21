@@ -1,0 +1,153 @@
+# -----------------------------------------------------------------------------
+# 20-observability/prometheus/rules.test.yml - unit tests for rules.yml.
+#
+# What: feeds made-up metric histories into the rules and checks which alerts
+#       fire, with which labels and text. Run with:
+#         promtool test rules terraform/stacks/20-observability/prometheus/rules.test.yml
+#       (CI runs it in terraform-ci.yml's "alert rules" job.)
+# How to read a series: '0+600x30' means start at 0 and add 600 every interval
+#       (1 minute here) for 30 intervals - a counter growing 10 per second.
+# -----------------------------------------------------------------------------
+rule_files:
+  - rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Healthy: everything scored within 5 s, a fresh checkpoint, no errors, 0.5%
+  # alerts - nothing should fire.
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_end_to_end_latency_seconds_bucket{le="5.0",task="a"}'
+        values: '0+600x30'
+      - series: 'fraudstream_end_to_end_latency_seconds_count{task="a"}'
+        values: '0+600x30'
+      - series: 'fraudstream_last_checkpoint_timestamp_seconds{task="a"}'
+        values: '0+60x30'
+      - series: 'up{job="fraudstream-consumer",instance="localhost:8000",task="a"}'
+        values: '1x30'
+      - series: 'fraudstream_endpoint_errors_total{task="a"}'
+        values: '0x30'
+      - series: 'fraudstream_endpoint_call_seconds_count{task="a"}'
+        values: '0+300x30'
+      - series: 'fraudstream_alerts_total{model_version="2",task="a"}'
+        values: '0+3x30'
+      - series: 'fraudstream_transactions_scored_total{model_version="2",task="a"}'
+        values: '0+600x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: FraudstreamLatencySLOFastBurn
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FraudstreamCheckpointStale
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FraudstreamMetricsPageDown
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FraudstreamEndpointErrors
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FraudstreamAlertRateHigh
+        exp_alerts: []
+
+  # Half of all transactions take over 5 s: the fast burn pages.
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_end_to_end_latency_seconds_bucket{le="5.0",task="a"}'
+        values: '0+300x30'
+      - series: 'fraudstream_end_to_end_latency_seconds_count{task="a"}'
+        values: '0+600x30'
+    promql_expr_test:
+      - expr: fraudstream:latency_slo_errors:ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'fraudstream:latency_slo_errors:ratio_rate5m'
+            value: 0.5
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FraudstreamLatencySLOFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: Scoring is too slow - the latency SLO budget is burning fast.
+              description: More than 14.4% of transactions took over 5 s in the last hour and the last 5 minutes. Check the consumer overview dashboard (end-to-end latency, endpoint call duration).
+
+  # The consumer committed at 60 s and never again: stuck.
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_last_checkpoint_timestamp_seconds{task="a"}'
+        values: '60x15'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FraudstreamCheckpointStale
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: FraudstreamCheckpointStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The consumer has not committed Kafka offsets for over 5 minutes.
+              description: The consumer is running but scoring is stuck (it normally checkpoints every ~60 s). Transactions are waiting in Kafka. Check the consumer logs.
+
+  # Still waiting for the endpoint at start-up (never committed): not "stuck".
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_last_checkpoint_timestamp_seconds{task="a"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FraudstreamCheckpointStale
+        exp_alerts: []
+
+  # The collector can't reach the consumer's page.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="fraudstream-consumer",instance="localhost:8000",task="a"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FraudstreamMetricsPageDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              task: a
+            exp_annotations:
+              summary: The metrics collector cannot reach a consumer's /metrics page.
+              description: The collector is running but the consumer beside it is not answering on port 8000 - it may be crash-looping. Check the consumer logs.
+
+  # 10% of endpoint calls fail.
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_endpoint_errors_total{task="a"}'
+        values: '0+30x20'
+      - series: 'fraudstream_endpoint_call_seconds_count{task="a"}'
+        values: '0+300x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FraudstreamEndpointErrors
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: More than 5% of SageMaker endpoint calls are failing.
+              description: Retries may still be hiding it from scoring, but the endpoint is unhealthy. Check the endpoint's CloudWatch metrics and recent deployments.
+
+  # 3% of transactions raise alerts for over 45 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'fraudstream_alerts_total{model_version="2",task="a"}'
+        values: '0+18x60'
+      - series: 'fraudstream_transactions_scored_total{model_version="2",task="a"}'
+        values: '0+600x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: FraudstreamAlertRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The fraud alert rate is over 1% - twice the review budget.
+              description: The fraud team can review ~0.5% of transactions. A sustained jump may be a fraud attack, a replayed stream or a model problem (drift). Check alerts by model and the score distribution.

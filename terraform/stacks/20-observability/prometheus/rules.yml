@@ -1,0 +1,128 @@
+# -----------------------------------------------------------------------------
+# 20-observability/prometheus/rules.yml - fraudstream's Prometheus rules.
+#
+# What: recording rules for the scoring-latency SLO, and the alerts that email
+#       the ops-alerts topic (via Alertmanager in Managed Prometheus). Uploaded
+#       by this stack (alerting.tf) as one rule namespace; unit-tested in CI with
+#       `promtool test rules` (rules.test.yml beside this file).
+# SLO:  99% of transactions are scored within 5 seconds of being produced
+#       (end-to-end latency). Error budget = 1% of transactions.
+# Burn-rate alerts (the multi-window method from Google's SRE workbook): page
+#       when the budget is being spent so fast it would run out early -
+#         fast: 14.4x the allowed rate over 1h AND 5m (2% of a 30-day budget
+#               gone in an hour) -> page
+#         slow: 6x over 6h AND 30m (5% gone in 6 hours) -> ticket
+#       The long window proves it's real; the short one makes it stop soon
+#       after the problem is fixed.
+# Teardown: every rule here needs consumer metrics to exist. When the stack is
+#       torn down at night there are no samples, so nothing fires - "consumer
+#       completely gone" is covered by the MSK consumer-lag alarm in 35-apps,
+#       which is destroyed with the stack.
+# -----------------------------------------------------------------------------
+groups:
+  - name: fraudstream-slo
+    interval: 1m
+    rules:
+      # Share of transactions slower than 5 s, over each window.
+      - record: fraudstream:latency_slo_errors:ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(fraudstream_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[5m]))
+            /
+            sum(rate(fraudstream_end_to_end_latency_seconds_count[5m]))
+          )
+      - record: fraudstream:latency_slo_errors:ratio_rate30m
+        expr: |
+          1 - (
+            sum(rate(fraudstream_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[30m]))
+            /
+            sum(rate(fraudstream_end_to_end_latency_seconds_count[30m]))
+          )
+      - record: fraudstream:latency_slo_errors:ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(fraudstream_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[1h]))
+            /
+            sum(rate(fraudstream_end_to_end_latency_seconds_count[1h]))
+          )
+      - record: fraudstream:latency_slo_errors:ratio_rate6h
+        expr: |
+          1 - (
+            sum(rate(fraudstream_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[6h]))
+            /
+            sum(rate(fraudstream_end_to_end_latency_seconds_count[6h]))
+          )
+
+  - name: fraudstream-alerts
+    interval: 1m
+    rules:
+      - alert: FraudstreamLatencySLOFastBurn
+        expr: |
+          fraudstream:latency_slo_errors:ratio_rate1h > (14.4 * 0.01)
+          and
+          fraudstream:latency_slo_errors:ratio_rate5m > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Scoring is too slow - the latency SLO budget is burning fast.
+          description: More than 14.4% of transactions took over 5 s in the last hour and the last 5 minutes. Check the consumer overview dashboard (end-to-end latency, endpoint call duration).
+
+      - alert: FraudstreamLatencySLOSlowBurn
+        expr: |
+          fraudstream:latency_slo_errors:ratio_rate6h > (6 * 0.01)
+          and
+          fraudstream:latency_slo_errors:ratio_rate30m > (6 * 0.01)
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Scoring has been slow for hours - the latency SLO budget is draining.
+          description: More than 6% of transactions took over 5 s over the last 6 hours and 30 minutes.
+
+      - alert: FraudstreamCheckpointStale
+        expr: |
+          (time() - max(fraudstream_last_checkpoint_timestamp_seconds) > 300)
+          and
+          (max(fraudstream_last_checkpoint_timestamp_seconds) > 0)
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The consumer has not committed Kafka offsets for over 5 minutes.
+          description: The consumer is running but scoring is stuck (it normally checkpoints every ~60 s). Transactions are waiting in Kafka. Check the consumer logs.
+
+      - alert: FraudstreamMetricsPageDown
+        expr: max by (task) (up{job="fraudstream-consumer"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The metrics collector cannot reach a consumer's /metrics page.
+          description: The collector is running but the consumer beside it is not answering on port 8000 - it may be crash-looping. Check the consumer logs.
+
+      - alert: FraudstreamEndpointErrors
+        expr: |
+          sum(rate(fraudstream_endpoint_errors_total[5m]))
+          /
+          sum(rate(fraudstream_endpoint_call_seconds_count[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: More than 5% of SageMaker endpoint calls are failing.
+          description: Retries may still be hiding it from scoring, but the endpoint is unhealthy. Check the endpoint's CloudWatch metrics and recent deployments.
+
+      - alert: FraudstreamAlertRateHigh
+        expr: |
+          sum(rate(fraudstream_alerts_total[30m]))
+          /
+          sum(rate(fraudstream_transactions_scored_total[30m]))
+          > 0.01
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The fraud alert rate is over 1% - twice the review budget.
+          description: The fraud team can review ~0.5% of transactions. A sustained jump may be a fraud attack, a replayed stream or a model problem (drift). Check alerts by model and the score distribution.
