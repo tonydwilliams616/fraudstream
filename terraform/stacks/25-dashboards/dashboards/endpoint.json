@@ -306,8 +306,8 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "CPU per instance",
-      "description": "Average CPU across the endpoint's instances (100% = one full core, so it can exceed 100).",
+      "title": "Calls per minute (total)",
+      "description": "All endpoint calls per minute, across every instance - compare with calls per instance to see how the load is spread. (Replaced a CPU panel: SageMaker publishes no instance metrics for this endpoint.)",
       "gridPos": {
         "x": 0,
         "y": 16,
@@ -329,23 +329,23 @@
           "metricQueryType": 0,
           "metricEditorMode": 0,
           "region": "default",
-          "namespace": "/aws/sagemaker/Endpoints",
-          "metricName": "CPUUtilization",
+          "namespace": "AWS/SageMaker",
+          "metricName": "Invocations",
           "dimensions": {
             "EndpointName": "fs-fraud",
             "VariantName": "AllTraffic"
           },
-          "statistic": "Average",
+          "statistic": "Sum",
           "period": "60",
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "CPU"
+          "label": "calls per minute"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "short"
         },
         "overrides": []
       }
