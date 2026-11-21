@@ -12,7 +12,8 @@ drift detection, retraining, DR – not model accuracy.
 
 Phase 1 (foundations, data and baseline model) – complete. Phase 2 (streaming and serving) –
 complete. Phase 3 (training pipeline and evaluation gate) – complete. Phase 4 (safe deployment
-and scaling) – complete. Next: Phase 5 (observability and SLOs).
+and scaling) – complete. Phase 5 (observability and SLOs) – complete. Next: Phase 6 (drift
+detection and automated retraining).
 
 ### Phase 1 – data and baseline model
 
@@ -197,12 +198,92 @@ Impact: ~81 minutes of delayed fraud checks; 64,699 transactions, 0 lost, 0 scor
 | Endpoint role couldn't read the rollback alarms | `DescribeAlarms` added - on `"*"`: scoped to the alarm ARNs it is denied, because SageMaker's check is evaluated against `"*"` (found with the IAM policy simulator on 15 Nov) |
 | Terraform reported an abandoned update as success, then deleted in-use objects | `promotion verify` after every apply; last-known-good model and config kept deployed |
 | Consumer crash-loops when its model lookup fails | Backlog: keep the last known model and retry instead of exiting |
-| Nobody was alerted for 80 minutes | Phase 5: alarms on consumer running count and consumer lag |
+| Nobody was alerted for 80 minutes | Phase 5: MSK consumer-lag alarm (emails ~12 minutes into an outage) and SLO burn-rate alerts - both proven by stopping the consumer |
 | A broken dependency blocked the deploy of its own fix | Single-stack deploy as the break-glass path |
 | Stale state lock after a cancelled run | `terraform force-unlock`, only once the lock holder is confirmed dead |
 
 Also seen: a 90-minute Terraform timeout while MSK was still creating (AWS took ~1h45m) tainted a
 healthy cluster; it was checked in AWS and untainted rather than replaced.
+
+### Phase 5 – observability and SLOs
+
+```
+consumer :8000/metrics --(ADOT collector sidecar, every 15 s, SigV4)--> Managed Prometheus
+     rules: SLO recording rules + alerts --> Alertmanager --> SNS (KMS) --> email
+Managed Grafana (SSO) <-- Prometheus + CloudWatch      MSK consumer lag --> CloudWatch alarm --> SNS
+```
+
+![Consumer overview dashboard](docs/images/consumer-overview.png)
+
+- **The consumer publishes its own vital signs** on `:8000/metrics` (`prometheus_client`):
+  transactions consumed and scored, alerts by model version, end-to-end latency (produced ->
+  scored), every endpoint call's duration and failures, transactions per call, the score
+  distribution, the live model and the time of the last offset commit. Labels are kept to
+  `model_version` and `task` - every label value is a separate stored series.
+- **A collector sidecar ships them.** An ADOT (AWS Distro for OpenTelemetry) collector in the
+  consumer's task reads the page over `localhost` (no port opened), adds a `task` label so two
+  tasks overlapping during a deploy don't collide, and remote-writes to Amazon Managed Service
+  for Prometheus, signed with the task role (write access to that one workspace). It is
+  non-essential: if it dies, scoring carries on.
+- **Managed Grafana, as code.** IAM Identity Center sign-in; its own role reads Prometheus and
+  CloudWatch. Data sources and dashboards (`terraform/stacks/25-dashboards/dashboards/*.json`) are
+  applied by Terraform with a Grafana service-account token that rotates every 25 days.
+- **SLO: 99% of transactions scored within 5 seconds of being produced.** Error budget 1% (~259,000
+  transactions a month at 10/s). Multi-window burn-rate alerts: **fast** (14.4x the allowed rate
+  over 1 hour AND 5 minutes -> page) and **slow** (6x over 6 hours AND 30 minutes -> ticket). Also:
+  no offset commit for 5 minutes, metrics page down, endpoint errors over 5%, alert rate over 1%.
+  The rules are unit-tested with `promtool` in CI.
+- **"Consumer completely gone" is measured from outside it.** A dead consumer can't report that it's
+  dead - and with no samples, Prometheus rules go quiet. A CloudWatch alarm on MSK's own count of
+  unread messages (`SumOffsetLag` > 3,000, i.e. 5 minutes of traffic, for 2 x 5 minutes) covers it;
+  it lives in the ephemeral apps stack, so the nightly teardown never trips it.
+- **Alert delivery:** Alertmanager and CloudWatch publish to the ops-alerts SNS topic, encrypted
+  with a customer-managed KMS key whose policy lets both services in (the AWS-managed SNS key's
+  policy can't be changed). FIRING and RESOLVED messages both arrive by email.
+
+![Endpoint dashboard during a load test](docs/images/endpoint-scaling.png)
+
+*Endpoint dashboard (CloudWatch) during a load test: calls per instance jump to ~190 against the
+scaling target of 100, and a 4th instance is added; model latency stays under 9 ms, 0 errors.*
+
+**Measured (21 November 2026):**
+
+| Check | Result |
+|---|---|
+| Normal operation | 10 transactions/s scored; end-to-end p99 ~0.2 s; endpoint call p50 ~13 ms, p99 ~25 ms; 0 errors; alert rate ~0.3–0.6% |
+| Transactions per endpoint call | ~2.1 (each call can carry 50) - the case for micro-batching, now measured |
+| SLO recording rule on live data | 0% of transactions slower than 5 s |
+| Load test (575 calls/min) | 3 -> 4 instances, 0 errors |
+| Outage test 1: consumer stopped | **Found a bug:** the alarm used `EstimatedMaxTimeLag`, which MSK works out from how fast the consumer reads - with nobody reading it fell to 0, so the alarm could never fire. Unread messages meanwhile grew ~3,000 every 5 minutes. Switched to `SumOffsetLag` the same evening |
+| Outage test 2: consumer stopped 18:41 | **ALARM email at 18:53** (~12.5 minutes); restarted -> backlog drained in ~2 minutes -> fast-burn page 19:05 (the late transactions spending the budget) -> **OK** 19:07 -> fast burn resolved 19:10 |
+
+![Lag panel during outage test 1](docs/images/lag-alarm-bug.png)
+
+*The original lag metric during outage test 1: it drops to 0 when the consumer stops - exactly when
+it should climb. Found by breaking the system on purpose, not by reading the docs.*
+
+#### What the tests taught
+
+- **Test alerts by causing the failure.** Rule unit tests prove the logic; only the outage test
+  proved the *metric* was wrong.
+- **No samples = "resolved", not "healthy".** The slow-burn alert resolved while the consumer was
+  stopped, because its rule had no data. Keep one signal that doesn't depend on the failing
+  component.
+- **Lag alerts during, the SLO after.** A transaction's latency is known only when it's scored, so
+  the burn-rate page arrives as the backlog is cleared - the damage report, not the smoke alarm.
+- **Recovery compresses time.** Twenty minutes of transactions scored in two made a normal burst
+  of fraud look like a spike (`AlertRateHigh` fired for 5 minutes).
+- Along the way: Fargate only accepts set CPU/memory pairs (1.5 GB at 0.5 vCPU is rejected at
+  apply, so a variable validation now catches it at plan); AWS's `ReadOnlyAccess` lacked
+  `grafana:ListWorkspaceServiceAccounts` (added to the plan role); Managed Grafana's own AWS app
+  still uses SigV4 on the core Prometheus data source, which Grafana marks deprecated (migration
+  to the Amazon Managed Service for Prometheus plugin is on the backlog).
+
+**Cost:** Managed Prometheus within the free tier; Managed Grafana $9 per active admin/editor per
+month after a 90-day trial (plus $9 in months Terraform uses its service account); KMS key ~$1/month.
+All persistent - and the Grafana workspace bills its minimum licence while it exists, so it is
+destroyed when the project is finished. `python scripts/ops/check_teardown.py` proves nothing
+hourly is left after a teardown.
 
 ## Repository layout
 
@@ -212,20 +293,25 @@ terraform/
   modules/
     cost-guardrails/   budgets, alerts, anomaly detection
     s3-bucket/         one data bucket with the baseline settings
-    ecs-service/       one app on Fargate: digest-pinned image, read-only root, circuit breaker
+    ecs-service/       one app on Fargate: digest-pinned image, read-only root, circuit breaker,
+                       optional non-essential sidecars
   stacks/              one state file per stack, applied in numeric order
-    00-account/        P  budgets + ops-alerts SNS topic
+    00-account/        P  budgets + ops-alerts SNS topic (customer-managed KMS key)
     05-registry/       P  ECR repositories (simulator, consumer, pipeline)
     10-network/        P  VPC over 3 AZs: public/app/data subnets, S3 endpoint, flow logs, security groups
     15-nat/            E  NAT gateway per AZ + default routes for the app subnets
     18-data/           P  S3: datasets, artefacts, scored archive, endpoint data capture
     19-ml/             P  IAM roles (endpoint, ECS tasks, training pipeline), model registry group
+    20-observability/  P  Managed Prometheus + Managed Grafana workspaces, alert rules (prometheus/
+                          rules.yml + promtool tests), Alertmanager -> SNS, Grafana service account
+    25-dashboards/     P  Grafana data sources and dashboards (dashboards/*.json)
     30-streaming/      E  MSK (3 x m7g.large, KRaft, IAM auth, TLS) + ECS cluster
-    35-apps/           E  simulator + consumer services
+    35-apps/           E  simulator + consumer services, metrics collector sidecar,
+                          MSK consumer-lag alarm
     40-serving/        E  endpoint fs-fraud: current + last-known-good model, canary deployment,
                           rollback alarms, auto scaling (2-4), data capture
 .github/workflows/
-  terraform-ci.yml       fmt, validate, tflint, Checkov -> single "ci-passed" check
+  terraform-ci.yml       fmt, validate, tflint, Checkov, promtool rule tests -> single "ci-passed" check
   python-ci.yml          ruff + pytest -> single "python-ci-passed" check
   images.yml             build, smoke-test and Trivy-scan images (apps ARM64, pipeline x86); push to ECR on main
   training-pipeline.yml  upsert and run the SageMaker training pipeline; by hand with overrides
@@ -233,6 +319,7 @@ terraform/
   terraform-destroy.yml  nightly teardown of ephemeral stacks + SageMaker sweep + verify
 docker/                container images (simulator, consumer, pipeline steps)
 docs/security.md       image scanning policy, accepted risk, hardening backlog
+docs/images/           dashboard screenshots used in this README
 scripts/
   setup-github.sh      repo variables, secret, environments, branch protection
   data/make_dataset.py generate a dataset version -> data/ and s3://fs-datasets-.../
@@ -243,11 +330,13 @@ scripts/
   serve/register_broken_model.py  a deliberately broken model for the rollback test
   ops/check_scoring.py     scored archive: lost or duplicated transactions, latency
   ops/load_test.py         real test-day traffic at a fixed rate, to prove auto scaling
+  ops/check_teardown.py    after a teardown: proves nothing billed by the hour is left
 src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   generator/           synthetic cardholders, shops, transactions and fraud, from one seed
   features/            FeatureBuilder: the one place features are calculated
   simulator/           streams synthetic transactions into Kafka (python -m fraudstream.simulator)
-  consumer/            scores the stream with the deployed model (python -m fraudstream.consumer)
+  consumer/            scores the stream with the deployed model (python -m fraudstream.consumer);
+                       metrics.py = its Prometheus metrics
   msk.py               MSK connection settings (IAM auth) and topic set-up
   registry.py          model package requests for the SageMaker model registry
   endpoint.py          endpoint request/reply format (CSV) and parity comparison
@@ -258,7 +347,8 @@ src/fraudstream/       the Python package (pip install -e ".[dev,train,stream]")
   deploy_guard.py      refuses plans that would replace the endpoint or MSK
 tests/                 pytest: generator, features, leakage, skew, reproducibility, registry,
                        endpoint format, consumer (scoring, checkpoint order, hand-overs), audit,
-                       pipeline definition and gate, promotion, plan guard
+                       pipeline definition and gate, promotion, plan guard, consumer metrics,
+                       teardown check
 pyproject.toml         package definition, dependencies, pytest and ruff settings
 ```
 
