@@ -495,13 +495,17 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
         },
         "overrides": []
       },
       "options": {
         "orientation": "vertical",
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "showUnfilled": true,
         "reduceOptions": {
           "calcs": [
