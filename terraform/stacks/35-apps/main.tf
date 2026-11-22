@@ -186,6 +186,27 @@ module "simulator" {
     DATASET_URI       = local.dataset_uri
     RATE              = tostring(var.simulator_rate)
     AWS_REGION        = var.aws_region
+    DRIFT_PARAMETER   = aws_ssm_parameter.drift.name
+  }
+}
+
+# The simulator's drift switch (fraudstream.simulator.drift): a runtime flag it
+# re-reads every minute, so a scenario can be switched on mid-session without
+# restarting the simulator (a restart replays the day's transactions):
+#   aws ssm put-parameter --name /fs/simulator/drift --value amount_inflation --overwrite
+# Terraform creates it as "none" and then ignores the value, so a flip made by
+# hand isn't undone by the next apply. Ephemeral like the simulator: the nightly
+# teardown deletes it, and every rebuild starts with no drift.
+# Cost: standard parameter and its API calls - free.
+resource "aws_ssm_parameter" "drift" {
+  #checkov:skip=CKV2_AWS_34:Holds a scenario name such as "none" - not a secret, so a plain String
+  name        = local.ml.drift_parameter_name
+  description = "Simulator drift scenario: none | amount_inflation (read every minute)"
+  type        = "String"
+  value       = "none"
+
+  lifecycle {
+    ignore_changes = [value]
   }
 }
 

@@ -13,6 +13,9 @@ Settings (environment variables):
   SEED               default: derived from START_DATE, so each day's stream differs
   FRAUD_RATE         default 0.005
   MAX_MESSAGES       stop after this many (0 = run forever), default 0
+  DRIFT_PARAMETER    SSM parameter holding the drift scenario, re-read every minute
+                     (see fraudstream.simulator.drift). Empty = use DRIFT_SCENARIO.
+  DRIFT_SCENARIO     fixed scenario when there's no parameter, default "none"
   DRY_RUN            "1" = print messages instead of sending (no Kafka, no AWS needed
                      if DATASET_URI is a local folder)
   AWS_REGION         default us-east-1
@@ -32,6 +35,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from fraudstream.simulator.drift import SCENARIOS, DriftSwitch, fixed, ssm_parameter
 from fraudstream.simulator.events import Pacer, stream_transactions
 from fraudstream.storage import download_version, load_version
 
@@ -50,6 +54,8 @@ class Settings:
     max_messages: int
     dry_run: bool
     region: str
+    drift_parameter: str = ""
+    drift_scenario: str = "none"
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> Settings:
@@ -59,6 +65,9 @@ class Settings:
         bootstrap = env.get("BOOTSTRAP_SERVERS", "")
         if not bootstrap and not dry_run:
             raise ValueError("BOOTSTRAP_SERVERS is required (or set DRY_RUN=1)")
+        drift_scenario = env.get("DRIFT_SCENARIO") or "none"
+        if drift_scenario not in SCENARIOS:
+            raise ValueError(f"DRIFT_SCENARIO must be one of {sorted(SCENARIOS)}")
         return cls(
             bootstrap_servers=bootstrap,
             topic=env.get("TOPIC", "transactions"),
@@ -70,7 +79,15 @@ class Settings:
             max_messages=int(env.get("MAX_MESSAGES", "0")),
             dry_run=dry_run,
             region=env.get("AWS_REGION", "us-east-1"),
+            drift_parameter=env.get("DRIFT_PARAMETER", ""),
+            drift_scenario=drift_scenario,
         )
+
+    def drift_switch(self) -> DriftSwitch:
+        """The live switch (SSM parameter) if one is named, else a fixed scenario."""
+        if self.drift_parameter:
+            return DriftSwitch(ssm_parameter(self.drift_parameter, self.region))
+        return DriftSwitch(fixed(self.drift_scenario))
 
 
 class PrintSink:
@@ -89,8 +106,15 @@ class PrintSink:
         self.out.flush()
 
 
-def run(settings: Settings, sink, pacer: Pacer, stop=lambda: False) -> int:
+def run(
+    settings: Settings,
+    sink,
+    pacer: Pacer,
+    stop=lambda: False,
+    drift: DriftSwitch | None = None,
+) -> int:
     """Send messages until stop() is true or max_messages is reached. Returns how many were sent."""
+    drift = drift or settings.drift_switch()
     folder = (
         download_version(settings.dataset_uri, Path("/tmp/fraudstream-data"))
         if settings.dataset_uri.startswith("s3://")
@@ -115,10 +139,13 @@ def run(settings: Settings, sink, pacer: Pacer, stop=lambda: False) -> int:
         if stop() or (settings.max_messages and sent >= settings.max_messages):
             break
         pacer.wait()
-        sink.send(message)
+        sink.send(drift.apply(message))
         sent += 1
         if time.monotonic() - last_log >= 60:
-            log.info("sent %s, delivered %s, failed %s", sent, sink.delivered, sink.failed)
+            log.info(
+                "sent %s, delivered %s, failed %s, drift %s",
+                sent, sink.delivered, sink.failed, drift.scenario,
+            )  # fmt: skip
             last_log = time.monotonic()
     sink.flush()
     log.info("stopped: sent %s, delivered %s, failed %s", sent, sink.delivered, sink.failed)
