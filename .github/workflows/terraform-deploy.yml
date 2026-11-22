@@ -58,7 +58,6 @@ on:
           - 30-streaming
           - 35-apps
           - 40-serving
-          - 50-observability
       allow_replace:
         description: "Allow a plan that REPLACES the endpoint or MSK cluster (causes an outage)"
         type: boolean

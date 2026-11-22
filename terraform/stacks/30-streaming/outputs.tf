@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
-# 30-streaming/outputs.tf - what the apps (35-apps) and monitoring
-# (50-observability) need to connect to Kafka and run tasks.
+# 30-streaming/outputs.tf - what the apps (35-apps) need to connect to Kafka
+# and run tasks.
 # -----------------------------------------------------------------------------
 output "msk_cluster_arn" {
   description = "MSK cluster ARN (its random ID changes on every rebuild)."

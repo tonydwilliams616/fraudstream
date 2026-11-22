@@ -11,10 +11,10 @@
 #   brokers, and at rest.
 #   Topics are never created by accident: auto.create.topics.enable=false, so
 #   a typo in a topic name is an error, not a new empty topic.
-#   Monitoring: Prometheus exporters on every broker (scraped in Phase 5),
+#   Monitoring: Prometheus exporters on every broker (on, but not scraped),
 #   per-broker CloudWatch metrics, and broker logs to CloudWatch Logs.
-# ECS: the cluster the simulator, consumer and monitoring tasks run in
-#   (35-apps, 50-observability). The cluster itself costs nothing; tasks do.
+# ECS: the cluster the simulator and consumer run in (35-apps). The cluster
+#   itself costs nothing; tasks do.
 # Cost: 3 x kafka.m7g.large ~$0.61/hour + storage (~$0.02/hour for 150 GB).
 # Create time: typically 25-40 minutes; destroy 10-20 minutes.
 # -----------------------------------------------------------------------------

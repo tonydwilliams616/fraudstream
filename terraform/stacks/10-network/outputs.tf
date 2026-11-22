@@ -41,10 +41,9 @@ output "data_subnet_ids" {
 }
 
 output "security_group_ids" {
-  description = "Security groups by role: apps, msk, observability."
+  description = "Security groups by role: apps, msk."
   value = {
-    apps          = aws_security_group.apps.id
-    msk           = aws_security_group.msk.id
-    observability = aws_security_group.observability.id
+    apps = aws_security_group.apps.id
+    msk  = aws_security_group.msk.id
   }
 }
