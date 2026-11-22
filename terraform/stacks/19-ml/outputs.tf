@@ -56,6 +56,11 @@ output "drift_parameter_name" {
   value       = local.drift_parameter_name
 }
 
+output "chargebacks_prefix" {
+  description = "Prefix in the scored bucket where the simulator writes chargebacks (delayed fraud labels)."
+  value       = local.chargebacks_prefix
+}
+
 output "dataset_version" {
   description = "Dataset version the apps read reference tables from (the task roles may read only this one)."
   value       = var.dataset_version

@@ -10,7 +10,8 @@
 # Kafka permissions use MSK IAM access control: every Kafka action (connect,
 # write to a topic, read it, join a consumer group) is an IAM action checked
 # per request, so each app is limited to its own topics:
-#   simulator  - create + write `transactions`; read its drift flag (SSM)
+#   simulator  - create + write `transactions`; read its drift flag (SSM);
+#                write chargebacks under labels/chargebacks/ in the scored bucket
 #   consumer   - read `transactions` as group fs-scorer; create + write `scored`
 #                and `fraud.alerts`; invoke the endpoint; look up which model
 #                package the endpoint serves (read-only Describe calls, for its
@@ -88,6 +89,15 @@ data "aws_iam_policy_document" "simulator" {
     sid       = "ReadDriftFlag"
     actions   = ["ssm:GetParameter"]
     resources = ["arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter${local.drift_parameter_name}"]
+  }
+
+  # The chargeback feed (fraudstream.simulator.chargebacks): delayed fraud
+  # labels, next to the scored archive they're joined with. Write-only, and
+  # only under its own prefix - it can't read or overwrite the archive.
+  statement {
+    sid       = "WriteChargebacks"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.buckets["scored"]}/${local.chargebacks_prefix}/*"]
   }
 }
 

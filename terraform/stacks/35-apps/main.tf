@@ -187,6 +187,7 @@ module "simulator" {
     RATE              = tostring(var.simulator_rate)
     AWS_REGION        = var.aws_region
     DRIFT_PARAMETER   = aws_ssm_parameter.drift.name
+    LABELS_URI        = "s3://${local.buckets["scored"]}/${local.ml.chargebacks_prefix}"
   }
 }
 

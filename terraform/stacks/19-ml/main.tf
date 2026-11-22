@@ -31,6 +31,10 @@ locals {
   # (created by 35-apps, so the nightly teardown resets it to "none").
   drift_parameter_name = "/${local.name}/simulator/drift"
 
+  # Where the simulator's chargeback feed (delayed fraud labels) is written, in
+  # the scored bucket: same 90-day expiry as the archive it's joined with.
+  chargebacks_prefix = "labels/chargebacks"
+
   # MSK IAM resource ARNs. The "*" is the cluster's random ID, which changes on
   # every rebuild; the cluster NAME and topic/group names are fixed.
   kafka_arn_prefix = "arn:aws:kafka:${var.aws_region}:${var.aws_account_id}"

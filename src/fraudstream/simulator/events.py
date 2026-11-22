@@ -18,8 +18,9 @@ Concepts:
   - NO LABELS ON THE WIRE. A bank doesn't know a purchase is fraud when it
     happens - it finds out days later (chargebacks). So messages never carry
     is_fraud or fraud_type; sending them would let the live system "cheat".
-    The answers for these transactions arrive later as a separate feed
-    (Phase 4, delayed labels).
+    The answers arrive later as a separate feed: stream_labelled() hands the
+    simulator each message WITH its truth, and only the chargeback feed
+    (chargebacks.py) uses that truth - days later, and only for fraud.
   - Hour of day matters to the model, so simulated days start at midnight
     UTC on real calendar dates and are never shifted to "now".
 """
@@ -73,7 +74,29 @@ def stream_transactions(
     block_days: int = 7,
     fraud_rate: float = 0.005,
 ) -> Iterator[dict]:
-    """Messages in event-time order, block after block, never ending.
+    """Messages in event-time order, block after block, never ending (no labels)."""
+    for message, _truth in stream_labelled(cards, merchants, start, seed, block_days, fraud_rate):
+        yield message
+
+
+def truth_of(row) -> dict:
+    """What the generator knows about a row and the wire must never carry."""
+    fraud_type = row.get("fraud_type")
+    return {
+        "is_fraud": bool(row["is_fraud"]),
+        "fraud_type": fraud_type if isinstance(fraud_type, str) and fraud_type else None,
+    }
+
+
+def stream_labelled(
+    cards: pd.DataFrame,
+    merchants: pd.DataFrame,
+    start: str,
+    seed: int,
+    block_days: int = 7,
+    fraud_rate: float = 0.005,
+) -> Iterator[tuple[dict, dict]]:
+    """(message, truth) pairs in event-time order, block after block, never ending.
 
     Each block is generated in one go, so multi-day habits (trips away, fraud
     episodes spanning days) behave as in training. Block k uses seed + k, so
@@ -92,7 +115,7 @@ def stream_transactions(
         # block's start date so IDs stay unique across the whole stream.
         tx["transaction_id"] = f"S{block_start:%Y%m%d}-" + tx["transaction_id"]
         for row in tx.to_dict("records"):
-            yield to_message(row)
+            yield to_message(row), truth_of(row)
         block_start += pd.Timedelta(days=block_days)
         block += 1
 
