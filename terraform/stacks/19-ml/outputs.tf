@@ -51,6 +51,11 @@ output "endpoint_name" {
   value       = local.endpoint_name
 }
 
+output "drift_parameter_name" {
+  description = "SSM parameter holding the simulator's drift scenario (35-apps creates it; the simulator may read only this one)."
+  value       = local.drift_parameter_name
+}
+
 output "dataset_version" {
   description = "Dataset version the apps read reference tables from (the task roles may read only this one)."
   value       = var.dataset_version

@@ -27,6 +27,10 @@ locals {
   endpoint_name    = "${local.name}-fraud"
   consumer_group   = "${local.name}-scorer"
 
+  # Runtime flag the simulator reads every minute for its drift scenario
+  # (created by 35-apps, so the nightly teardown resets it to "none").
+  drift_parameter_name = "/${local.name}/simulator/drift"
+
   # MSK IAM resource ARNs. The "*" is the cluster's random ID, which changes on
   # every rebuild; the cluster NAME and topic/group names are fixed.
   kafka_arn_prefix = "arn:aws:kafka:${var.aws_region}:${var.aws_account_id}"
