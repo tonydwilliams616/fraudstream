@@ -2,10 +2,11 @@
 # terraform-destroy.yml - the nightly teardown of everything billed by the hour.
 #
 # What: destroys the EPHEMERAL stacks, in this order:
-#         50-observability -> 40-serving -> 35-apps -> 30-streaming -> 15-nat
+#         40-serving -> 35-apps -> 30-streaming -> 15-nat
 #       PERSISTENT stacks are never touched here, because they hold data or cost
 #       (almost) nothing when idle:
-#         bootstrap, 00-account, 05-registry, 10-network, 18-data, 19-ml
+#         bootstrap, 00-account, 05-registry, 10-network, 18-data, 19-ml,
+#         20-observability, 25-dashboards
 #       Stacks with no code yet are skipped, so this is safe to run at any time.
 # Why:  the stack costs ~$1/hour while up (mostly MSK); a forgotten session
 #       overnight would cost more than the session itself. Rebuild with:
@@ -47,7 +48,7 @@ env:
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
   # Destroyed in exactly this order (reverse of dependencies). Stacks without
   # code yet are skipped. Keep the plan's section 7 (teardown table) in step.
-  EPHEMERAL_STACKS: "50-observability 40-serving 35-apps 30-streaming 15-nat"
+  EPHEMERAL_STACKS: "40-serving 35-apps 30-streaming 15-nat"
 
 jobs:
   destroy:
