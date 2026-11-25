@@ -20,10 +20,14 @@ Concepts:
     the labels: whether a purchase was fraud doesn't change because prices rose.
 Scenarios:
   none              the world as in training
-  amount_inflation  every amount x1.5 - prices rise; nobody commits more fraud.
+  amount_inflation  every amount x2 - prices double; nobody commits more fraud.
                     DATA (covariate) drift: log_amount moves for good;
                     amount_vs_card_mean moves too, then settles as each card's
-                    history fills with the new, higher amounts.
+                    history fills with the new, higher amounts. Why x2 and not a
+                    gentler x1.5: amounts already vary hugely from card to card,
+                    so x1.5 only shifts them a little against that spread (PSI
+                    ~0.12, "moderate"); x2 is clearly "significant" (~0.36).
+                    Measured on generated data in Phase 6c.
 Prior shift (more fraud, same patterns) needs no switch: FRAUD_RATE does it.
 """
 
@@ -35,7 +39,7 @@ from collections.abc import Callable
 
 log = logging.getLogger("fraudstream.simulator.drift")
 
-AMOUNT_INFLATION = 1.5
+AMOUNT_INFLATION = 2.0
 
 
 def _unchanged(message: dict) -> dict:

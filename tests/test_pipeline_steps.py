@@ -59,6 +59,7 @@ def good_model(prepared):
 def test_prepare_writes_the_three_parts_and_info(prepared):
     _, data = prepared
     assert sorted(p.name for p in data.iterdir()) == [
+        "drift-baseline.json",
         "info.json",
         "test.csv",
         "train.csv",
@@ -67,6 +68,8 @@ def test_prepare_writes_the_three_parts_and_info(prepared):
     info = json.loads((data / "info.json").read_text())
     assert info["dataset"] == "transactions/v1"
     assert info["split"]["train"]["days"] == [1, 7]
+    baseline = json.loads((data / "drift-baseline.json").read_text())
+    assert baseline["rows"] == info["split"]["train"]["rows"]  # built from the training rows only
 
 
 def test_training_saves_only_the_best_trees(good_model):

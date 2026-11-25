@@ -2,7 +2,9 @@
 
 What:
   prepare_data()       dataset version -> features + time split -> train/valid/test CSV
-                       plus info.json (dataset, fingerprint, feature schema, split)
+                       plus info.json (dataset, fingerprint, feature schema, split) and
+                       drift-baseline.json (how each feature was spread out in the
+                       training rows - what the hourly drift check compares live data with)
   evaluate_model()     scores the challenger (and the champion, if any) on the SAME
                        validation and test days, applies the gate, and writes
                        metrics.json (the same layout as Phase 1 runs), evaluation.json
@@ -29,6 +31,7 @@ import pandas as pd
 import xgboost as xgb
 
 from fraudstream.features import FEATURE_COLUMNS
+from fraudstream.monitoring.drift import BASELINE_FILE, build_baseline
 from fraudstream.pipeline.gate import decide
 from fraudstream.pipeline.train_entry import MODEL_FILE
 from fraudstream.registry import package_request, register
@@ -51,6 +54,8 @@ def prepare_data(dataset_dir: Path, out_dir: Path, train_days: int, valid_days: 
     for name in PARTS:
         getattr(data, name).to_csv(out_dir / f"{name}.csv", index=False)
     (out_dir / "info.json").write_text(json.dumps(data.info, indent=2) + "\n")
+    baseline = build_baseline(data.train, source={"dataset": data.info["dataset"], "part": "train"})
+    (out_dir / BASELINE_FILE).write_text(json.dumps(baseline, indent=2) + "\n")
     return data.info
 
 
