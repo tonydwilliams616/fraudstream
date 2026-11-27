@@ -112,3 +112,15 @@ variable "collector_image" {
   type        = string
   default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
 }
+
+variable "pipeline_image_tag" {
+  description = "Pipeline image tag (a commit SHA) for the hourly drift check. null = the most recently pushed image. Pinned by digest either way."
+  type        = string
+  default     = null
+}
+
+variable "drift_check_schedule" {
+  description = "When the drift check runs (EventBridge Scheduler expression, UTC). 5 past the hour, so the previous hour's archive is complete."
+  type        = string
+  default     = "cron(5 * * * ? *)"
+}
