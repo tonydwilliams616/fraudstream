@@ -61,6 +61,16 @@ output "chargebacks_prefix" {
   value       = local.chargebacks_prefix
 }
 
+output "drift_check" {
+  description = "Hourly drift check: task family, its namespace, the task role and the scheduler role that starts it."
+  value = {
+    family             = local.drift_check_family
+    namespace          = local.drift_check_namespace
+    task_role_arn      = aws_iam_role.drift_check.arn
+    scheduler_role_arn = aws_iam_role.drift_scheduler.arn
+  }
+}
+
 output "dataset_version" {
   description = "Dataset version the apps read reference tables from (the task roles may read only this one)."
   value       = var.dataset_version
